@@ -3,8 +3,7 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$ModelServerPath,
 
-    [string]$UpstreamUrl = "https://github.com/openvinotoolkit/model_server.git",
-    [string]$RemoteName = "gemma4-backport-upstream"
+    [string]$UpstreamUrl = "https://github.com/openvinotoolkit/model_server.git"
 )
 
 $ErrorActionPreference = "Stop"
@@ -18,32 +17,23 @@ $Commits = @(
 
 $ModelServerPath = (Resolve-Path $ModelServerPath).Path
 if (-not (Test-Path (Join-Path $ModelServerPath ".git"))) {
-    throw "Not a git checkout: $ModelServerPath"
+    throw "ModelServerPath must point to an OVMS source checkout, not to an unpacked binary distribution: $ModelServerPath"
 }
 
 Push-Location $ModelServerPath
 try {
     $status = git status --porcelain
     if ($LASTEXITCODE -ne 0) { throw "git status failed" }
-    if ($status) { throw "Refusing to patch a dirty model_server worktree." }
+    if ($status) { throw "Refusing to patch a dirty model_server source worktree." }
 
     $head = (git rev-parse HEAD).Trim()
     if ($LASTEXITCODE -ne 0) { throw "git rev-parse HEAD failed" }
     if ($head -ne $BaseCommit) {
-        throw "Wrong model_server base. Expected $BaseCommit, found $head. Checkout the exact RC1 base before applying this backport."
+        throw "Wrong model_server source base. Expected $BaseCommit, found $head. Checkout the exact RC1 source baseline first."
     }
 
-    $existingRemote = git remote get-url $RemoteName 2>$null
-    if ($LASTEXITCODE -eq 0) {
-        if ($existingRemote.Trim() -ne $UpstreamUrl) {
-            throw "Remote '$RemoteName' exists but points to '$($existingRemote.Trim())', expected '$UpstreamUrl'."
-        }
-    } else {
-        git remote add $RemoteName $UpstreamUrl
-        if ($LASTEXITCODE -ne 0) { throw "Failed to add upstream remote '$RemoteName'." }
-    }
-
-    git fetch --no-tags $RemoteName main
+    Write-Host "Fetching upstream objects only. No remote or commit will be created in your checkout."
+    git fetch --no-tags $UpstreamUrl main
     if ($LASTEXITCODE -ne 0) { throw "Failed to fetch upstream model_server main." }
 
     foreach ($commit in $Commits) {
@@ -51,19 +41,35 @@ try {
         if ($LASTEXITCODE -ne 0) { throw "Upstream commit $commit was not fetched." }
     }
 
-    foreach ($commit in $Commits) {
-        Write-Host "Cherry-picking upstream fix $commit"
-        git cherry-pick $commit
-        if ($LASTEXITCODE -ne 0) {
-            git cherry-pick --abort 2>$null
-            throw "Cherry-pick failed for $commit. Backport aborted and worktree restored."
+    try {
+        Write-Host "Applying Gemma4 parser fixes to the local worktree without creating Git commits:"
+        foreach ($commit in $Commits) {
+            Write-Host "  $commit"
         }
+
+        git cherry-pick --no-commit @Commits
+        if ($LASTEXITCODE -ne 0) {
+            throw "git cherry-pick --no-commit failed"
+        }
+
+        # Leave a normal locally-patched worktree rather than staged changes.
+        git reset --mixed HEAD
+        if ($LASTEXITCODE -ne 0) { throw "Failed to unstage locally applied backport." }
+    } catch {
+        git cherry-pick --abort 2>$null
+        git reset --hard $BaseCommit | Out-Null
+        throw "Backport application failed. The source worktree was restored to $BaseCommit. Details: $($_.Exception.Message)"
     }
 
-    $patchedHead = (git rev-parse HEAD).Trim()
-    Write-Host "Gemma4 OVMS parser backport applied."
-    Write-Host "  base:    $BaseCommit"
-    Write-Host "  patched: $patchedHead"
+    $patched = git status --short
+    if ($LASTEXITCODE -ne 0) { throw "git status failed after backport application" }
+    if (-not $patched) { throw "Backport produced no local source changes; refusing to report success." }
+
+    Write-Host "Gemma4 OVMS parser backport applied locally."
+    Write-Host "  source base: $BaseCommit"
+    Write-Host "  Git commits created: none"
+    Write-Host "  local modified files:"
+    $patched | ForEach-Object { Write-Host "    $_" }
 } finally {
     Pop-Location
 }
