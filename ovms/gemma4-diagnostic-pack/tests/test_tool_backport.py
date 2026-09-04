@@ -59,9 +59,11 @@ def test_windows_build_temporarily_overrides_upstream_hardcoded_vs_path_and_rest
     assert "VS_2022_BT" in text
     assert "windows_install_build_dependencies.bat" in text
     assert "windows_build.bat" in text
-    assert "Set-Content" in text
+    assert "WriteAllText" in text
+    assert "ReadAllBytes" in text
+    assert "WriteAllBytes" in text
     assert "finally" in text
-    assert "Restore" in text or "restore" in text
+    assert "Restore-OvmsWindowsBuildScripts" in text
 
 
 def test_tool_smoke_requires_openai_tool_calls_not_raw_markup():
