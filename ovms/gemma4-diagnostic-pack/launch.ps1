@@ -11,6 +11,9 @@ param(
 
     [int]$RestPort = 8000,
 
+    [ValidateRange(1, 2147483647)]
+    [int]$MaxTokensLimit = 65536,
+
     [ValidateSet("JINJA", "MINJA")]
     [string]$ChatTemplateMode = "JINJA",
 
@@ -48,6 +51,7 @@ $modelForGraph = To-OvmsPath $ResolvedModelPath
 $graphText = Get-Content -Raw -Encoding UTF8 $TemplateGraph
 $graphText = $graphText.Replace("__MODEL_PATH__", $modelForGraph)
 $graphText = $graphText.Replace("__CHAT_TEMPLATE_MODE__", $ChatTemplateMode)
+$graphText = $graphText.Replace("__MAX_TOKENS_LIMIT__", $MaxTokensLimit.ToString())
 Set-Content -Path $RuntimeGraph -Value $graphText -Encoding UTF8
 
 $configObject = @{
@@ -69,6 +73,7 @@ Write-Host "  profile:       $Profile"
 Write-Host "  template:      $ChatTemplateMode"
 Write-Host "  config:        $RuntimeConfig"
 Write-Host "  port:          $RestPort"
+Write-Host "  max tokens:    $MaxTokensLimit"
 Write-Host ""
 
 if ($NoLaunch) {

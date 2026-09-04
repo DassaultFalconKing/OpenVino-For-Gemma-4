@@ -1,5 +1,6 @@
 from pathlib import Path
 import json
+import re
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -63,3 +64,21 @@ def test_launcher_exposes_required_profile_switches():
     assert '"vlm-stable", "vlm-cb-experimental"' in text
     assert 'ValidateSet("JINJA", "MINJA")' in text
     assert "--rest_workers 1" in text
+
+
+def test_profiles_use_runtime_max_tokens_placeholder():
+    for rel in [
+        "profiles/vlm-stable/graph.pbtxt",
+        "profiles/vlm-cb-experimental/graph.pbtxt",
+    ]:
+        text = (ROOT / rel).read_text(encoding="utf-8")
+        assert "max_tokens_limit: __MAX_TOKENS_LIMIT__" in text
+        assert "max_tokens_limit: 8192" not in text
+
+
+def test_launcher_defaults_to_64k_and_injects_override():
+    text = (ROOT / "launch.ps1").read_text(encoding="utf-8")
+    assert re.search(r"\[int\]\$MaxTokensLimit\s*=\s*65536", text)
+    assert "ValidateRange(1, 2147483647)" in text
+    assert '$graphText.Replace("__MAX_TOKENS_LIMIT__", $MaxTokensLimit.ToString())' in text
+    assert "max tokens:    $MaxTokensLimit" in text
