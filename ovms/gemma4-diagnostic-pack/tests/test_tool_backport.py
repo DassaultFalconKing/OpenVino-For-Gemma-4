@@ -54,6 +54,14 @@ def test_windows_build_detects_visual_studio_buildtools_in_both_program_files_ro
     assert "VC\\Tools\\MSVC" in text
 
 
+def test_windows_build_uses_detected_msvc_version_instead_of_rc1_hardcode():
+    text = (BACKPORT / "build-windows.ps1").read_text(encoding="utf-8")
+    assert "MsvcVersion" in text
+    assert "BAZEL_VC_FULL_VERSION" in text
+    assert "14.44.35207" in text
+    assert "Directory.Parent.Parent.Parent.Name" in text
+
+
 def test_windows_build_temporarily_overrides_upstream_hardcoded_vs_path_and_restores_scripts():
     text = (BACKPORT / "build-windows.ps1").read_text(encoding="utf-8")
     assert "VS_2022_BT" in text
