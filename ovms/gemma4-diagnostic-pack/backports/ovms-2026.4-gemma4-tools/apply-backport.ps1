@@ -44,12 +44,11 @@ try {
     try {
         Write-Host "Applying Gemma4 parser fixes to the local worktree without creating Git commits:"
         foreach ($commit in $Commits) {
-            Write-Host "  $commit"
-        }
-
-        git cherry-pick --no-commit @Commits
-        if ($LASTEXITCODE -ne 0) {
-            throw "git cherry-pick --no-commit failed"
+            Write-Host "  applying $commit"
+            git cherry-pick --no-commit $commit
+            if ($LASTEXITCODE -ne 0) {
+                throw "git cherry-pick --no-commit failed for $commit"
+            }
         }
 
         # Leave a normal locally-patched worktree rather than staged changes.
