@@ -23,6 +23,29 @@ A prebuilt `ovms.exe` cannot be source-patched in place. The parser is compiled 
 
 The apply step creates **no Git commit**, needs no Git user.name/user.email, and leaves the source changes as ordinary local modified files.
 
+## Visual Studio Build Tools locations
+
+The wrapper supports both standard Visual Studio 2022 Build Tools installation roots:
+
+```text
+C:\Program Files\Microsoft Visual Studio\2022\BuildTools
+C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools
+```
+
+It checks both `ProgramFiles` environment roots, verifies that an x64 `cl.exe` exists below `VC\Tools\MSVC`, and uses the first valid installation. This bypasses the pinned OVMS RC1 batch scripts' hard-coded `Program Files (x86)` assumption.
+
+The OVMS batch files are changed only temporarily during the build. Their original bytes are restored in `finally`, including when dependency installation or compilation fails.
+
+To force a non-standard installation explicitly:
+
+```powershell
+.\build-windows.ps1 `
+  -ModelServerPath C:\git\model_server-gemma4 `
+  -VisualStudioPath "D:\BuildTools\Microsoft Visual Studio\2022\BuildTools" `
+  -DependenciesRoot opt `
+  -SkipApply
+```
+
 ## Apply and build on Windows
 
 If you already have `C:\git\model_server-gemma4` from an earlier attempt, reuse it after confirming it is clean and still on the pinned baseline:
@@ -57,6 +80,8 @@ C:\path\to\OpenVino-For-Gemma-4\ovms\gemma4-diagnostic-pack\backports\ovms-2026.
 
 If the normal OVMS Windows build dependencies already exist under `C:\opt`, omit `-InstallDependencies`.
 
+If the Gemma4/parser patch is already present in the source checkout from an earlier build attempt, add `-SkipApply` rather than applying it a second time.
+
 The build uses `--with_python` because the diagnostic deployment uses `ChatTemplateMode JINJA`, and `--with_tests` so the upstream Gemma4 parser tests can run before packaging.
 
 `windows_create_package.bat` then creates the matching self-contained runtime under:
@@ -77,6 +102,7 @@ Stop OVMS first. Then pass the existing directory plus `-ForceDeploy`:
 .\build-windows.ps1 `
   -ModelServerPath C:\git\model_server-gemma4 `
   -DependenciesRoot opt `
+  -SkipApply `
   -DeployTo C:\llm\ovms `
   -ForceDeploy
 ```

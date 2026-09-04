@@ -8,20 +8,161 @@ param(
     [switch]$SkipApply,
     [switch]$SkipParserTests,
 
+    [string]$VisualStudioPath,
     [string]$DeployTo,
     [switch]$ForceDeploy
 )
 
 $ErrorActionPreference = "Stop"
 $PSNativeCommandUseErrorActionPreference = $false
+
+function Resolve-VisualStudioBuildTools {
+    param([string]$RequestedPath)
+
+    $candidates = New-Object System.Collections.Generic.List[string]
+    if ($RequestedPath) {
+        $candidates.Add([System.IO.Path]::GetFullPath($RequestedPath))
+    }
+
+    $ProgramFiles = [Environment]::GetEnvironmentVariable("ProgramFiles")
+    $ProgramFilesX86 = [Environment]::GetEnvironmentVariable("ProgramFiles(x86)")
+
+    foreach ($root in @($ProgramFiles, $ProgramFilesX86)) {
+        if ($root) {
+            $candidates.Add((Join-Path $root "Microsoft Visual Studio\2022\BuildTools"))
+        }
+    }
+
+    # Keep literal fallbacks as well. They make diagnostics deterministic even
+    # when a shell has inherited unusual ProgramFiles environment variables.
+    $candidates.Add("C:\Program Files\Microsoft Visual Studio\2022\BuildTools")
+    $candidates.Add("C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools")
+
+    $seen = @{}
+    foreach ($candidate in $candidates) {
+        if (-not $candidate) { continue }
+        $key = $candidate.TrimEnd('\').ToLowerInvariant()
+        if ($seen.ContainsKey($key)) { continue }
+        $seen[$key] = $true
+
+        if (-not (Test-Path -LiteralPath $candidate -PathType Container)) { continue }
+
+        $msvcRoot = Join-Path $candidate "VC\Tools\MSVC"
+        $clPattern = Join-Path $msvcRoot "*\bin\Hostx64\x64\cl.exe"
+        $cl = Get-ChildItem -Path $clPattern -File -ErrorAction SilentlyContinue |
+            Sort-Object FullName -Descending |
+            Select-Object -First 1
+
+        if ($cl) {
+            return [pscustomobject]@{
+                Path = [System.IO.Path]::GetFullPath($candidate)
+                ClExe = $cl.FullName
+                MsvcVersion = $cl.Directory.Parent.Parent.Parent.Name
+            }
+        }
+    }
+
+    $checked = ($seen.Keys | Sort-Object) -join "`n  - "
+    throw "Visual Studio 2022 Build Tools with x64 MSVC compiler was not found. Checked:`n  - $checked`nInstall Desktop development with C++ or pass -VisualStudioPath explicitly."
+}
+
+function Set-OvmsVisualStudioPath {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$SourceRoot,
+        [Parameter(Mandatory = $true)]
+        [string]$VsPath,
+        [Parameter(Mandatory = $true)]
+        [string]$MsvcVersion
+    )
+
+    $scripts = @(
+        "windows_install_build_dependencies.bat",
+        "windows_build.bat"
+    )
+    $backups = @{}
+    $hardcodedVs = 'set VS_2022_BT="C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools"'
+    $replacementVs = "set VS_2022_BT=`"$VsPath`""
+    $hardcodedCmake = 'c:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\'
+    $replacementCmake = (Join-Path $VsPath "Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin") + "\"
+    $hardcodedMsvcVersion = 'set "BAZEL_VC_FULL_VERSION=14.44.35207"'
+    $replacementMsvcVersion = "set `"BAZEL_VC_FULL_VERSION=$MsvcVersion`""
+
+    try {
+        foreach ($name in $scripts) {
+            $path = Join-Path $SourceRoot $name
+            if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
+                throw "Required OVMS Windows build script is missing: $path"
+            }
+
+            $backups[$path] = [System.IO.File]::ReadAllBytes($path)
+            $text = [System.IO.File]::ReadAllText($path)
+            if (-not $text.Contains($hardcodedVs)) {
+                throw "Pinned OVMS script no longer contains the expected VS_2022_BT hardcode: $name"
+            }
+
+            $patched = $text.Replace($hardcodedVs, $replacementVs)
+            if ($name -eq "windows_install_build_dependencies.bat") {
+                $patched = $patched.Replace($hardcodedCmake, $replacementCmake)
+            }
+            if ($name -eq "windows_build.bat") {
+                if (-not $patched.Contains($hardcodedMsvcVersion)) {
+                    throw "Pinned OVMS windows_build.bat no longer contains the expected BAZEL_VC_FULL_VERSION hardcode."
+                }
+                $patched = $patched.Replace($hardcodedMsvcVersion, $replacementMsvcVersion)
+            }
+
+            [System.IO.File]::WriteAllText(
+                $path,
+                $patched,
+                [System.Text.UTF8Encoding]::new($false)
+            )
+        }
+    } catch {
+        foreach ($entry in $backups.GetEnumerator()) {
+            [System.IO.File]::WriteAllBytes($entry.Key, $entry.Value)
+        }
+        throw
+    }
+
+    return $backups
+}
+
+function Restore-OvmsWindowsBuildScripts {
+    param([hashtable]$Backups)
+
+    if (-not $Backups) { return }
+    foreach ($entry in $Backups.GetEnumerator()) {
+        [System.IO.File]::WriteAllBytes($entry.Key, $entry.Value)
+    }
+}
+
 $ModelServerPath = (Resolve-Path $ModelServerPath).Path
 
 if (-not $SkipApply) {
     & (Join-Path $PSScriptRoot "apply-backport.ps1") -ModelServerPath $ModelServerPath
 }
 
+$vs = Resolve-VisualStudioBuildTools -RequestedPath $VisualStudioPath
+Write-Host "Using Visual Studio 2022 Build Tools:"
+Write-Host "  $($vs.Path)"
+Write-Host "Using MSVC compiler:"
+Write-Host "  $($vs.ClExe)"
+Write-Host "Using MSVC toolset version:"
+Write-Host "  $($vs.MsvcVersion)"
+
+$batchBackups = $null
 Push-Location $ModelServerPath
 try {
+    # OVMS 2026.4 RC1 hardcodes Build Tools under Program Files (x86) and a
+    # specific MSVC toolset version. Temporarily rewrite those pinned values so
+    # installations under either Program Files root work, then restore the exact
+    # original bytes after build/package completes or fails.
+    $batchBackups = Set-OvmsVisualStudioPath `
+        -SourceRoot $ModelServerPath `
+        -VsPath $vs.Path `
+        -MsvcVersion $vs.MsvcVersion
+
     if ($InstallDependencies) {
         & .\windows_install_build_dependencies.bat $DependenciesRoot
         if ($LASTEXITCODE -ne 0) { throw "windows_install_build_dependencies.bat failed." }
@@ -101,5 +242,9 @@ try {
         Write-Host "  $DeployTo"
     }
 } finally {
-    Pop-Location
+    try {
+        Restore-OvmsWindowsBuildScripts -Backups $batchBackups
+    } finally {
+        Pop-Location
+    }
 }
