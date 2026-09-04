@@ -57,6 +57,7 @@ function Resolve-VisualStudioBuildTools {
             return [pscustomobject]@{
                 Path = [System.IO.Path]::GetFullPath($candidate)
                 ClExe = $cl.FullName
+                MsvcVersion = $cl.Directory.Parent.Parent.Parent.Name
             }
         }
     }
@@ -70,7 +71,9 @@ function Set-OvmsVisualStudioPath {
         [Parameter(Mandatory = $true)]
         [string]$SourceRoot,
         [Parameter(Mandatory = $true)]
-        [string]$VsPath
+        [string]$VsPath,
+        [Parameter(Mandatory = $true)]
+        [string]$MsvcVersion
     )
 
     $scripts = @(
@@ -82,6 +85,8 @@ function Set-OvmsVisualStudioPath {
     $replacementVs = "set VS_2022_BT=`"$VsPath`""
     $hardcodedCmake = 'c:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\'
     $replacementCmake = (Join-Path $VsPath "Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin") + "\"
+    $hardcodedMsvcVersion = 'set "BAZEL_VC_FULL_VERSION=14.44.35207"'
+    $replacementMsvcVersion = "set `"BAZEL_VC_FULL_VERSION=$MsvcVersion`""
 
     try {
         foreach ($name in $scripts) {
@@ -99,6 +104,12 @@ function Set-OvmsVisualStudioPath {
             $patched = $text.Replace($hardcodedVs, $replacementVs)
             if ($name -eq "windows_install_build_dependencies.bat") {
                 $patched = $patched.Replace($hardcodedCmake, $replacementCmake)
+            }
+            if ($name -eq "windows_build.bat") {
+                if (-not $patched.Contains($hardcodedMsvcVersion)) {
+                    throw "Pinned OVMS windows_build.bat no longer contains the expected BAZEL_VC_FULL_VERSION hardcode."
+                }
+                $patched = $patched.Replace($hardcodedMsvcVersion, $replacementMsvcVersion)
             }
 
             [System.IO.File]::WriteAllText(
@@ -137,14 +148,20 @@ Write-Host "Using Visual Studio 2022 Build Tools:"
 Write-Host "  $($vs.Path)"
 Write-Host "Using MSVC compiler:"
 Write-Host "  $($vs.ClExe)"
+Write-Host "Using MSVC toolset version:"
+Write-Host "  $($vs.MsvcVersion)"
 
 $batchBackups = $null
 Push-Location $ModelServerPath
 try {
-    # OVMS 2026.4 RC1 hardcodes Build Tools under Program Files (x86) in two
-    # batch files. Temporarily rewrite that pinned path so installations under
-    # either Program Files root work, then restore the exact original bytes.
-    $batchBackups = Set-OvmsVisualStudioPath -SourceRoot $ModelServerPath -VsPath $vs.Path
+    # OVMS 2026.4 RC1 hardcodes Build Tools under Program Files (x86) and a
+    # specific MSVC toolset version. Temporarily rewrite those pinned values so
+    # installations under either Program Files root work, then restore the exact
+    # original bytes after build/package completes or fails.
+    $batchBackups = Set-OvmsVisualStudioPath `
+        -SourceRoot $ModelServerPath `
+        -VsPath $vs.Path `
+        -MsvcVersion $vs.MsvcVersion
 
     if ($InstallDependencies) {
         & .\windows_install_build_dependencies.bat $DependenciesRoot
