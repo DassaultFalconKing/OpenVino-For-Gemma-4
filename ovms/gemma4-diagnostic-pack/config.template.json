@@ -1,0 +1,9 @@
+{
+  "model_config_list": [],
+  "mediapipe_config_list": [
+    {
+      "name": "__MODEL_NAME__",
+      "graph_path": "__GRAPH_PATH__"
+    }
+  ]
+}

@@ -1,0 +1,53 @@
+# Gemma 4 correctness baseline for OVMS.
+# Stateful OpenVINO GenAI VLMPipeline, no Continuous Batching.
+# __MODEL_PATH__ and __CHAT_TEMPLATE_MODE__ are replaced by launch.ps1.
+
+# OVMS_GRAPH_QUEUE_MAX_SIZE: 1
+input_stream: "HTTP_REQUEST_PAYLOAD:input"
+output_stream: "HTTP_RESPONSE_PAYLOAD:output"
+
+node: {
+  name: "LLMExecutor"
+  calculator: "HttpLLMCalculator"
+
+  input_stream: "LOOPBACK:loopback"
+  input_stream: "HTTP_REQUEST_PAYLOAD:input"
+
+  input_side_packet: "LLM_NODE_RESOURCES:llm"
+  input_side_packet: "LLM_NODE_EXECUTION_CONTEXTS:llm_ctx"
+
+  output_stream: "LOOPBACK:loopback"
+  output_stream: "HTTP_RESPONSE_PAYLOAD:output"
+
+  input_stream_info: {
+    tag_index: "LOOPBACK:0"
+    back_edge: true
+  }
+
+  node_options: {
+    [type.googleapis.com / mediapipe.LLMCalculatorOptions]: {
+      models_path: "__MODEL_PATH__"
+      device: "GPU"
+      pipeline_type: VLM
+
+      # Critical correctness knob for the Gemma-4 diagnostic baseline.
+      plugin_config: '{"DYNAMIC_QUANTIZATION_GROUP_SIZE":"0"}'
+
+      # Keep prompt/token handling deterministic while diagnosing.
+      enable_prefix_caching: false
+      chat_template_mode: __CHAT_TEMPLATE_MODE__
+      max_tokens_limit: 8192
+    }
+  }
+
+  input_stream_handler {
+    input_stream_handler: "SyncSetInputStreamHandler"
+    options {
+      [mediapipe.SyncSetInputStreamHandlerOptions.ext] {
+        sync_set {
+          tag_index: "LOOPBACK:0"
+        }
+      }
+    }
+  }
+}
