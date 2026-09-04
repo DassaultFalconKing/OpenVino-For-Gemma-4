@@ -45,6 +45,25 @@ def test_windows_build_script_builds_self_contained_package_and_can_deploy_elsew
     assert "Copy-Item" in text
 
 
+def test_windows_build_detects_visual_studio_buildtools_in_both_program_files_roots():
+    text = (BACKPORT / "build-windows.ps1").read_text(encoding="utf-8")
+    assert '[Environment]::GetEnvironmentVariable("ProgramFiles")' in text
+    assert '[Environment]::GetEnvironmentVariable("ProgramFiles(x86)")' in text
+    assert "Microsoft Visual Studio\\2022\\BuildTools" in text
+    assert "$VisualStudioPath" in text
+    assert "VC\\Tools\\MSVC" in text
+
+
+def test_windows_build_temporarily_overrides_upstream_hardcoded_vs_path_and_restores_scripts():
+    text = (BACKPORT / "build-windows.ps1").read_text(encoding="utf-8")
+    assert "VS_2022_BT" in text
+    assert "windows_install_build_dependencies.bat" in text
+    assert "windows_build.bat" in text
+    assert "Set-Content" in text
+    assert "finally" in text
+    assert "Restore" in text or "restore" in text
+
+
 def test_tool_smoke_requires_openai_tool_calls_not_raw_markup():
     text = (BACKPORT / "smoke_tool_call.py").read_text(encoding="utf-8")
     compile(text, str(BACKPORT / "smoke_tool_call.py"), "exec")
