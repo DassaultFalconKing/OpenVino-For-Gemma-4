@@ -1,36 +1,50 @@
 {
-  "schema_version": 2,
+  "schema_version": 3,
   "repository": "openvinotoolkit/model_server",
+  "upstream_repository": "https://github.com/openvinotoolkit/model_server.git",
   "base_commit": "530dc63f816507d18bc14629e8cffeb55e3985e6",
   "upstream_commits": [
     "503ff866278e9236d08bc9b6ddd18ec879660f72",
     "95628b45a082bd3d9562a3ad2f3d0762d5883ca4"
   ],
   "upstream_pull_requests": [4493, 4508],
-  "local_overlays": [
+  "candidate_deltas": [
     {
-      "id": "gemma4-hard-tool-choice-generation",
-      "applier": "apply-gemma4-generation-config.ps1",
-      "source": "drafts/gemma4-generation-config-builder/overlay",
-      "features": [
-        "Gemma4GenerationConfigBuilder",
-        "generation-config factory wiring",
-        "Bazel generation_config_builders wiring",
-        "required/named TagsWithSeparator hard generation",
-        "auto TriggeredTags only when graph guided generation is enabled",
-        "guided JSON argument parser fast path",
-        "guided JSON Gemma4OutputParserTest regression"
-      ]
+      "id": "parser-streaming-hardening",
+      "repository": "https://github.com/DassaultFalconKing/model_server.git",
+      "base": "6f5b48ece2078e32268b87402cc206e8b2772da8",
+      "head": "721e13d12c0fd4820ccc4bd06a866963c6524da5"
+    },
+    {
+      "id": "runtime-proven-parser-generation-candidate",
+      "repository": "https://github.com/DassaultFalconKing/model_server.git",
+      "base": "721e13d12c0fd4820ccc4bd06a866963c6524da5",
+      "head": "fd0c86c77ce6812fd6c77d9c8ee16a7dd7cb973b"
     }
   ],
-  "purpose": "Backport Gemma4 parser fixes and add request-level hard required/named tool-choice generation onto the OVMS 2026.4 RC1 Windows source baseline without globally constraining healthy auto tool calling.",
+  "selected_candidate_branch": "integration/gemmamonster-gemma4-portable-tools",
+  "selected_candidate_head": "fd0c86c77ce6812fd6c77d9c8ee16a7dd7cb973b",
+  "rejected_experiments": [
+    {
+      "branch": "hardening/gemma4-heretic-parser-streaming",
+      "head": "3bbc47949eb35fe70cfd098d52dc62c306774396",
+      "reason": "Useful test ideas and state-machine evidence, but the branch also synthesizes closure for truncated tool calls. The accepted runtime contract does not invent missing JSON structure without a real Heretic trace proving that recovery is safe. Keep as research evidence, not an applied production layer."
+    }
+  ],
+  "purpose": "Reconstruct the runtime-proven Gemma4 parser plus request-level hard tool-choice generation on the OVMS 2026.4 RC1 source baseline without embedding platform-specific build policy in source mutation logic.",
   "acceptance": {
-    "tool_choice_modes": ["auto", "required", "named"],
+    "tool_choice_modes": ["auto", "none", "required", "named"],
     "require_message_tool_calls": true,
     "reject_raw_tool_markup_in_content": true,
     "hard_choice_requires_empty_content": true,
     "hard_choice_first_generated_token_id": 48,
     "graph_enable_tool_guided_generation_default": false,
-    "parser_accepts_native_and_guided_json_arguments": true
+    "parser_accepts_native_and_guided_json_arguments": true,
+    "guided_json_streaming_and_unary": true,
+    "reasoning_tool_start_implicitly_ends_reasoning": true,
+    "exhaustive_structural_marker_split_tests": true,
+    "nested_objects_preserve_structure": true,
+    "arrays_preserve_json_types": true,
+    "windows_paths_are_json_escaped_not_stringified": true
   }
 }
