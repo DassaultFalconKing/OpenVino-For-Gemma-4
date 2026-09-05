@@ -20,13 +20,22 @@ namespace ovms {
 
 /*
  * Gemma4GenerationConfigBuilder extends BaseGenerationConfigBuilder with Gemma4
- * tool-guided generation (XGrammar / GenAI StructuredOutputConfig).
+ * tool-guided generation using OpenVINO GenAI StructuredOutputConfig.
  *
  * DRAFT: not wired into apply-backport.ps1 or the diagnostic vlm-stable graph.
  * Copy next to gemma4_tool_parser.* and add the factory/BUILD snippets in this folder.
  *
- * Tag mapping follows xgrammar builtin "gemma4" structural tags (PR mlc-ai/xgrammar#588),
- * not the unconstrained native argument dialect `{key:<|"|>value<|"|>}`.
+ * Policy:
+ *   - auto + guided=false: leave decoding unconstrained (live probe is healthy)
+ *   - auto + guided=true: TriggeredTags constrains a call after the model emits
+ *     the <|tool_call> trigger
+ *   - required / named tool_choice: top-level TagsWithSeparator(at_least_one)
+ *     constrains decoding from the first generated token
+ *   - none: never installs a tool grammar
+ *
+ * Tool bodies use JSONSchema content. Gemma4ToolParser must therefore accept
+ * both native <|\"|>-quoted arguments and guided standard-JSON arguments before
+ * this builder is enabled in a runtime.
  */
 class Gemma4GenerationConfigBuilder : public BaseGenerationConfigBuilder {
 public:
