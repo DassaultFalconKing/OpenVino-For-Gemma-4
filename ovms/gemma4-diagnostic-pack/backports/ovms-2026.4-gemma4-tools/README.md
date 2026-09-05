@@ -1,16 +1,54 @@
-# OVMS 2026.4 RC1 Gemma4 tool-call parser backport
+# OVMS 2026.4 RC1 Gemma4 tool-call + hard-choice backport
 
 This backport targets the Windows OVMS **source checkout** at exact baseline:
 
 `530dc63f816507d18bc14629e8cffeb55e3985e6`
 
-It applies two fixes that Intel merged after that baseline:
+`apply-backport.ps1` now applies one complete Gemma4 tool-calling stack:
 
-1. `503ff866278e9236d08bc9b6ddd18ec879660f72` — tool parser finalization fixes, including Gemma4.
-2. `95628b45a082bd3d9562a3ad2f3d0762d5883ca4` — `Gemma4 parsing fixes (#4508)`, including string values containing commas/braces/brackets and structural-tag cleanup.
+1. `503ff866278e9236d08bc9b6ddd18ec879660f72` — upstream tool-parser finalization fixes, including Gemma4.
+2. `95628b45a082bd3d9562a3ad2f3d0762d5883ca4` — upstream `Gemma4 parsing fixes (#4508)`.
+3. the local `Gemma4GenerationConfigBuilder` overlay;
+4. factory + Bazel `generation_config_builders` wiring;
+5. a dual-dialect parser fast path for standard JSON arguments produced by guided generation;
+6. a `Gemma4OutputParserTest` regression covering guided JSON with nested values and Windows path arrays.
 
-The goal is narrow: when Gemma4 generates native markup such as
-`<|tool_call>call:get_weather{...}<tool_call|>`, OVMS must expose an OpenAI-compatible `message.tool_calls` object instead of leaking that markup into `message.content`.
+The apply step creates **no Git commit**. It leaves one ordinary locally modified OVMS tree that can be built and packaged by `build-windows.ps1`.
+
+## Generation policy
+
+The builder deliberately preserves the live behavior that already works:
+
+| Request mode | Behavior |
+|---|---|
+| no tools | base config only |
+| `tool_choice=none` | no tool structural output, even if graph guided generation is enabled |
+| `auto`, guided=false | existing unconstrained Gemma4 path |
+| `auto`, guided=true | `TriggeredTags` after `<|tool_call>` |
+| `required` | top-level `TagsWithSeparator(tags, "", at_least_one=true)` |
+| named function | same hard top-level grammar; OVMS has already filtered the tool map to the named function |
+
+`required` and named choice do **not** use `TriggeredTags`. Triggered generation only takes control after the model emits `<|tool_call>` itself, which still permits textual promises such as `сейчас запущу` before the tool call. The hard path constrains generation from grammar start.
+
+The diagnostic `vlm-stable` graph still keeps graph-level `enable_tool_guided_generation` off by default. Request-level `required` and named choice are the first acceptance targets; healthy `auto` is kept as the control path.
+
+## Dual argument dialects
+
+Unconstrained Gemma4 commonly emits native arguments such as:
+
+```text
+<|tool_call>call:get_weather{city:<|"|>Berlin<|"|>}<tool_call|>
+```
+
+The hard builder uses OpenVINO GenAI `JSONSchema`, so guided output uses ordinary JSON:
+
+```text
+<|tool_call>call:get_weather{"city":"Berlin"}<tool_call|>
+```
+
+The patched parser accepts both. A complete valid JSON object is parsed and serialized canonically first; if that fails, the existing native Gemma4 `<|"|>` parser remains the fallback. This also prevents guided arrays such as Windows path lists from being converted into JSON strings.
+
+Historical XGrammar PR #588 is useful for tag-boundary history, but it is not current Gemma4 grammar support. Current XGrammar later disabled Gemma4 registration because the native parameter dialect is not ordinary JSON.
 
 ## Important path distinction
 
@@ -19,70 +57,43 @@ There are two completely separate locations:
 - `-ModelServerPath` points to an OVMS **source checkout** used only to apply the C++ patch and build.
 - `-DeployTo` points to the directory where you actually want to run the patched OVMS package.
 
-A prebuilt `ovms.exe` cannot be source-patched in place. The parser is compiled C++ code. The source checkout is therefore required once for rebuilding, but it can live anywhere and does not become your runtime directory.
-
-The apply step creates **no Git commit**, needs no Git user.name/user.email, and leaves the source changes as ordinary local modified files.
-
-## Visual Studio Build Tools locations
-
-The wrapper supports both standard Visual Studio 2022 Build Tools installation roots:
-
-```text
-C:\Program Files\Microsoft Visual Studio\2022\BuildTools
-C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools
-```
-
-It checks both `ProgramFiles` environment roots, verifies that an x64 `cl.exe` exists below `VC\Tools\MSVC`, and uses the first valid installation. This bypasses the pinned OVMS RC1 batch scripts' hard-coded `Program Files (x86)` assumption.
-
-The OVMS batch files are changed only temporarily during the build. Their original bytes are restored in `finally`, including when dependency installation or compilation fails.
-
-To force a non-standard installation explicitly:
-
-```powershell
-.\build-windows.ps1 `
-  -ModelServerPath C:\git\model_server-gemma4 `
-  -VisualStudioPath "D:\BuildTools\Microsoft Visual Studio\2022\BuildTools" `
-  -DependenciesRoot opt `
-  -SkipApply
-```
+A prebuilt `ovms.exe` cannot be source-patched in place. The source checkout is required for rebuilding but does not become the runtime directory.
 
 ## Apply and build on Windows
 
-If you already have `C:\git\model_server-gemma4` from an earlier attempt, reuse it after confirming it is clean and still on the pinned baseline:
-
-```powershell
-git -C C:\git\model_server-gemma4 status --short
-git -C C:\git\model_server-gemma4 rev-parse HEAD
-```
-
-The second command must print:
-
-```text
-530dc63f816507d18bc14629e8cffeb55e3985e6
-```
-
-Otherwise create a fresh source checkout:
+Use a clean checkout at the pinned baseline:
 
 ```powershell
 git clone https://github.com/openvinotoolkit/model_server.git C:\git\model_server-gemma4
 git -C C:\git\model_server-gemma4 checkout 530dc63f816507d18bc14629e8cffeb55e3985e6
 ```
 
-Build a complete self-contained package without touching your existing OVMS runtime:
+Or verify an existing checkout before reuse:
 
 ```powershell
-C:\path\to\OpenVino-For-Gemma-4\ovms\gemma4-diagnostic-pack\backports\ovms-2026.4-gemma4-tools\build-windows.ps1 `
+git -C C:\git\model_server-gemma4 status --short
+git -C C:\git\model_server-gemma4 rev-parse HEAD
+```
+
+The second command must print the pinned SHA and the first must be empty before applying.
+
+Build and deploy a complete package:
+
+```powershell
+.\build-windows.ps1 `
   -ModelServerPath C:\git\model_server-gemma4 `
   -DependenciesRoot opt `
   -InstallDependencies `
   -DeployTo C:\llm\ovms-gemma4-patched
 ```
 
-If the normal OVMS Windows build dependencies already exist under `C:\opt`, omit `-InstallDependencies`.
+If dependencies already exist under `C:\opt`, omit `-InstallDependencies`.
 
-If the Gemma4/parser patch is already present in the source checkout from an earlier build attempt, add `-SkipApply` rather than applying it a second time.
+If this **complete** backport was already applied to the source checkout, use `-SkipApply`. `build-windows.ps1` now validates builder files, factory wiring, Bazel wiring, and the guided-JSON parser fast path even when `-SkipApply` is used. A parser-only older checkout is rejected instead of silently building the wrong runtime.
 
-The build uses `--with_python` because the diagnostic deployment uses `ChatTemplateMode JINJA`, and `--with_tests` so the upstream Gemma4 parser tests can run before packaging.
+The wrapper supports Visual Studio 2022 Build Tools under either Program Files root or `C:\BuildTools`. A non-standard location can be supplied with `-VisualStudioPath`.
+
+The build uses `--with_python` for JINJA and `--with_tests`. Unless `-SkipParserTests` is supplied, the complete `Gemma4OutputParserTest.*` suite runs, including the locally injected guided-JSON regression.
 
 `windows_create_package.bat` then creates the matching self-contained runtime under:
 
@@ -90,13 +101,11 @@ The build uses `--with_python` because the diagnostic deployment uses `ChatTempl
 <ModelServerPath>\dist\windows\ovms
 ```
 
-and `-DeployTo` copies that entire package, including the matching OpenVINO/GenAI/tokenizer DLLs and embedded Python, to the runtime location you chose.
+Do not copy only `ovms.exe` over another unpacked runtime. The matching OpenVINO/GenAI/tokenizer DLLs and embedded Python belong to the package too. Apparently ABI skew was not exciting enough the first time.
 
-Do not copy only `ovms.exe` over an unrelated unpacked runtime. That risks mixing the patched executable with incompatible DLLs.
+## Replacing an existing runtime
 
-## Replacing an existing unpacked OVMS directory
-
-Stop OVMS first. Then pass the existing directory plus `-ForceDeploy`:
+Stop OVMS first. Then use `-ForceDeploy`:
 
 ```powershell
 .\build-windows.ps1 `
@@ -107,35 +116,29 @@ Stop OVMS first. Then pass the existing directory plus `-ForceDeploy`:
   -ForceDeploy
 ```
 
-The script does not delete the old runtime. It renames it to a timestamped backup such as:
-
-```text
-C:\llm\ovms.backup-20260904-205900
-```
-
-and then deploys the new self-contained package to `C:\llm\ovms`.
+The old runtime is renamed to a timestamped backup before the new package is copied.
 
 ## Runtime acceptance
 
-Start the model using the `ovms.exe` from `-DeployTo`, then run:
+First rerun the ordinary auto smoke test:
 
 ```powershell
-python .\backports\ovms-2026.4-gemma4-tools\smoke_tool_call.py `
+python .\smoke_tool_call.py `
   --base-url http://127.0.0.1:8000 `
   --model gemma4-26-heretic
 ```
 
-Acceptance requires all of the following:
+Then rerun the full 17-case probe and explicitly cover hard-choice behavior.
 
-- the HTTP request completes;
-- `message.tool_calls` is present and non-empty;
-- the first function is `get_weather`;
-- arguments are valid JSON;
-- `finish_reason` is `tool_calls`;
-- raw `<|tool_call>` markup is absent from `message.content`.
+Acceptance requires:
 
-## Deliberate limitation
+- the existing `auto` matrix does not regress;
+- `tool_choice=none` stays content-only;
+- `tool_choice=required` produces structured `message.tool_calls` without preceding prose;
+- conflicting named `get_weather` choice emits `get_weather` instead of answering the conflicting prompt directly;
+- guided JSON arguments stay valid JSON with correct nested/array types;
+- native `<|"|>` calls still parse correctly;
+- streaming remains `delta.tool_calls` + `finish_reason=tool_calls` with no raw markup leak;
+- TRACE/token capture shows token `48` (`<|tool_call>`) as the first generated token for hard choice.
 
-`tool_choice=required` is not an acceptance criterion for this backport. In the 2026.4 source line Gemma4 has an output parser, but it still does not have a Gemma4-specific `GenerationConfigBuilder`; forcing/guided-generation behavior is therefore a separate upstream gap. This patch fixes the observed parser/serialization failure first and keeps guided generation out of the correctness baseline.
-
-Do not enable `enable_tool_guided_generation` for this acceptance run.
+The last item is the decisive proof that top-level `TagsWithSeparator` is actually constraining from token zero. Compilation is necessary, not clairvoyance.

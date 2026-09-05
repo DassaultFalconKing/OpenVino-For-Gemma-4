@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "repository": "openvinotoolkit/model_server",
   "base_commit": "530dc63f816507d18bc14629e8cffeb55e3985e6",
   "upstream_commits": [
@@ -7,11 +7,30 @@
     "95628b45a082bd3d9562a3ad2f3d0762d5883ca4"
   ],
   "upstream_pull_requests": [4493, 4508],
-  "purpose": "Backport Gemma4 tool-call/output parsing fixes onto the OVMS 2026.4 RC1 source baseline used by the Windows deployment.",
+  "local_overlays": [
+    {
+      "id": "gemma4-hard-tool-choice-generation",
+      "applier": "apply-gemma4-generation-config.ps1",
+      "source": "drafts/gemma4-generation-config-builder/overlay",
+      "features": [
+        "Gemma4GenerationConfigBuilder",
+        "generation-config factory wiring",
+        "Bazel generation_config_builders wiring",
+        "required/named TagsWithSeparator hard generation",
+        "auto TriggeredTags only when graph guided generation is enabled",
+        "guided JSON argument parser fast path",
+        "guided JSON Gemma4OutputParserTest regression"
+      ]
+    }
+  ],
+  "purpose": "Backport Gemma4 parser fixes and add request-level hard required/named tool-choice generation onto the OVMS 2026.4 RC1 Windows source baseline without globally constraining healthy auto tool calling.",
   "acceptance": {
-    "tool_choice": "auto",
+    "tool_choice_modes": ["auto", "required", "named"],
     "require_message_tool_calls": true,
     "reject_raw_tool_markup_in_content": true,
-    "tool_choice_required_is_acceptance": false
+    "hard_choice_requires_empty_content": true,
+    "hard_choice_first_generated_token_id": 48,
+    "graph_enable_tool_guided_generation_default": false,
+    "parser_accepts_native_and_guided_json_arguments": true
   }
 }
