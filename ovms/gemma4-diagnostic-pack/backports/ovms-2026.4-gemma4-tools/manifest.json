@@ -28,7 +28,7 @@
     {
       "branch": "hardening/gemma4-heretic-parser-streaming",
       "head": "3bbc47949eb35fe70cfd098d52dc62c306774396",
-      "reason": "Useful test ideas and state-machine evidence, but the branch also synthesizes closure for truncated tool calls. The accepted runtime contract does not invent missing JSON structure without a real Heretic trace proving that recovery is safe. Keep as research evidence, not an applied production layer."
+      "reason": "Useful test ideas and state-machine evidence, but the branch also contains synthetic truncation recovery (synthesizes closure for truncated tool calls). The accepted runtime contract does not invent missing JSON structure without a real Heretic trace proving that recovery is safe. Keep as research evidence, not an applied production layer."
     }
   ],
   "purpose": "Reconstruct the runtime-proven Gemma4 parser plus request-level hard tool-choice generation on the OVMS 2026.4 RC1 source baseline without embedding platform-specific build policy in source mutation logic.",
