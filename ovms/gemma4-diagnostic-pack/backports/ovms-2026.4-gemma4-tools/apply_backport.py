@@ -69,6 +69,12 @@ def load_manifest(path: Path) -> dict[str, Any]:
                 "candidate delta chain is not contiguous: "
                 f"{deltas[index - 1]['head']} != {delta['base']}"
             )
+
+    if deltas[0]["base"] != data["base_commit"]:
+        raise ValueError(
+            "candidate delta chain does not start at base_commit: "
+            f"{deltas[0]['base']} != {data['base_commit']}"
+        )
     return data
 
 
