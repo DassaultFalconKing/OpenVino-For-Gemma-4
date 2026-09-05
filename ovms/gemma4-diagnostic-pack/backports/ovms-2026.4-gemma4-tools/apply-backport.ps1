@@ -3,83 +3,31 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$ModelServerPath,
 
-    [string]$UpstreamUrl = "https://github.com/openvinotoolkit/model_server.git"
+    [string]$PythonExe = ""
 )
 
 $ErrorActionPreference = "Stop"
-$PSNativeCommandUseErrorActionPreference = $false
 
-$BaseCommit = "530dc63f816507d18bc14629e8cffeb55e3985e6"
-$Commits = @(
-    "503ff866278e9236d08bc9b6ddd18ec879660f72",
-    "95628b45a082bd3d9562a3ad2f3d0762d5883ca4"
-)
-$LocalGenerationOverlay = Join-Path $PSScriptRoot "apply-gemma4-generation-config.ps1"
-
-$ModelServerPath = (Resolve-Path $ModelServerPath).Path
-if (-not (Test-Path (Join-Path $ModelServerPath ".git"))) {
-    throw "ModelServerPath must point to an OVMS source checkout, not to an unpacked binary distribution: $ModelServerPath"
-}
-if (-not (Test-Path -LiteralPath $LocalGenerationOverlay -PathType Leaf)) {
-    throw "Local Gemma4 generation overlay patcher is missing: $LocalGenerationOverlay"
-}
-
-Push-Location $ModelServerPath
-try {
-    $status = git status --porcelain
-    if ($LASTEXITCODE -ne 0) { throw "git status failed" }
-    if ($status) { throw "Refusing to patch a dirty model_server source worktree." }
-
-    $head = (git rev-parse HEAD).Trim()
-    if ($LASTEXITCODE -ne 0) { throw "git rev-parse HEAD failed" }
-    if ($head -ne $BaseCommit) {
-        throw "Wrong model_server source base. Expected $BaseCommit, found $head. Checkout the exact RC1 source baseline first."
-    }
-
-    Write-Host "Fetching upstream objects only. No remote or commit will be created in your checkout."
-    git fetch --no-tags $UpstreamUrl main
-    if ($LASTEXITCODE -ne 0) { throw "Failed to fetch upstream model_server main." }
-
-    foreach ($commit in $Commits) {
-        git cat-file -e "$commit^{commit}"
-        if ($LASTEXITCODE -ne 0) { throw "Upstream commit $commit was not fetched." }
-    }
-
-    try {
-        Write-Host "Applying upstream Gemma4 parser fixes without creating Git commits:"
-        foreach ($commit in $Commits) {
-            Write-Host "  applying $commit"
-            git cherry-pick --no-commit $commit
-            if ($LASTEXITCODE -ne 0) {
-                throw "git cherry-pick --no-commit failed for $commit"
-            }
+if ([string]::IsNullOrWhiteSpace($PythonExe)) {
+    foreach ($candidate in @("python", "python3", "py")) {
+        $resolved = Get-Command $candidate -ErrorAction SilentlyContinue
+        if ($null -ne $resolved) {
+            $PythonExe = $resolved.Source
+            break
         }
-
-        Write-Host "Integrating local Gemma4 GenerationConfigBuilder and dual-dialect parser support:"
-        & $LocalGenerationOverlay -ModelServerPath $ModelServerPath
-
-        # Both cherry-picked upstream changes and the local overlay are staged at
-        # this point. Leave a normal locally-patched worktree rather than staged
-        # changes or Git commits.
-        git reset --mixed HEAD
-        if ($LASTEXITCODE -ne 0) { throw "Failed to unstage locally applied Gemma4 backport." }
-    } catch {
-        git cherry-pick --abort 2>$null
-        git reset --hard $BaseCommit | Out-Null
-        throw "Gemma4 backport application failed. The source worktree was restored to $BaseCommit. Details: $($_.Exception.Message)"
     }
+}
 
-    $patched = git status --short
-    if ($LASTEXITCODE -ne 0) { throw "git status failed after backport application" }
-    if (-not $patched) { throw "Backport produced no local source changes; refusing to report success." }
+if ([string]::IsNullOrWhiteSpace($PythonExe)) {
+    throw "Python 3 is required. Pass -PythonExe or put python/python3/py on PATH."
+}
 
-    Write-Host "Gemma4 OVMS parser + hard tool-choice generation backport applied locally."
-    Write-Host "  source base: $BaseCommit"
-    Write-Host "  Git commits created: none"
-    Write-Host "  auto guided baseline: unchanged unless graph explicitly enables it"
-    Write-Host "  required/named tool_choice: hard structural generation installed"
-    Write-Host "  local modified files:"
-    $patched | ForEach-Object { Write-Host "    $_" }
-} finally {
-    Pop-Location
+$portableApplier = Join-Path $PSScriptRoot "apply_backport.py"
+if (-not (Test-Path -LiteralPath $portableApplier -PathType Leaf)) {
+    throw "Portable applier not found: $portableApplier"
+}
+
+& $PythonExe $portableApplier --model-server $ModelServerPath
+if ($LASTEXITCODE -ne 0) {
+    throw "Portable Gemma4 backport applier failed with exit code $LASTEXITCODE"
 }
