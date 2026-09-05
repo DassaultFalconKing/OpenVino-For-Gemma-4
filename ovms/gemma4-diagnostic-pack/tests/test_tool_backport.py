@@ -136,3 +136,26 @@ def test_draft_gemma4_generation_config_builder_is_documented_and_not_auto_appli
     assert "xgrammar" in prompt
     assert "apply-backport.ps1" in (draft / "README.md").read_text(encoding="utf-8")
     assert "Gemma4GenerationConfigBuilder" not in apply
+
+
+def test_draft_gemma4_generation_config_builder_separates_hard_and_auto_tool_choice():
+    draft = BACKPORT / "drafts" / "gemma4-generation-config-builder"
+    source = (draft / "overlay" / "src" / "llm" / "io_processing" / "gemma4" / "generation_config_builder.cpp").read_text(encoding="utf-8")
+
+    # `required` and named tool_choice must constrain from token zero rather than
+    # waiting for the model to emit the trigger on its own.
+    assert "hardToolChoice" in source
+    assert 'request.toolChoice == "required"' in source
+    assert 'request.toolChoice != "auto"' in source
+    assert 'request.toolChoice != "none"' in source
+    assert "TagsWithSeparator" in source
+    assert 'requiredTags->separator = ""' in source
+    assert "requiredTags->at_least_one = true" in source
+
+    # `none` must never regain tools through graph-level guided generation.
+    assert 'if (request.toolChoice == "none")' in source
+
+    # Auto mode keeps the existing successful unconstrained path unless the
+    # graph explicitly enables guided generation.
+    assert "TriggeredTags" in source
+    assert "enableToolGuidedGeneration" in source
