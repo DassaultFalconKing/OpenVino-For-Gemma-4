@@ -1,131 +1,153 @@
-You are finishing Gemma4GenerationConfigBuilder for OpenVINO Model Server 2026.4.
+You are finishing a draft `Gemma4GenerationConfigBuilder` for OpenVINO Model Server 2026.4.
 
-A draft already exists. Start from it. Do not rewrite Hermes3. Do not invent a second tag dialect.
-
-Draft overlay (helper repo):
-  ovms/gemma4-diagnostic-pack/backports/ovms-2026.4-gemma4-tools/drafts/gemma4-generation-config-builder/
-
-Read that folder's README.md and overlay C++ first. Then continue from the gates below.
+Start from this folder. Do not replace the existing Gemma4 output parser, do not enable guided generation globally, and do not copy the Hermes3 builder mechanically.
 
 ## Goal
-Make `tool_choice=required` and graph option `enable_tool_guided_generation: true` actually constrain Gemma4 decoding via OpenVINO GenAI StructuredOutputConfig / XGrammar, the same way llama3/hermes3/phi4/devstral already do. Today `toolParserName == "gemma4"` falls through to BaseGenerationConfigBuilder and logs: "Option enable_tool_guided_generation is set, but will not be effective since no valid tool parser has been provided."
 
-This is the missing piece for NovaClaw: after a few agent turns Gemma4 emits Russian prose ("сейчас запущу", "я использую") instead of native tool markup. The output parser cannot invent tool_calls from prose. Guided generation must force the first tool token (`<|tool_call>`, id 48).
+Make request-level hard tool choice actually constrain Gemma4 decoding:
 
-## What already works (do not regress)
-Gemma4ToolParser + Gemma4 reasoning parser already convert native markup into OpenAI `message.tool_calls`. TRACE on Windows GPU VLM-stable (2026-09-05, C:\llm\ovms-trace-gemma4.log) with temperature=0, tools present, OpenAI-style tool result messages:
+- `tool_choice=required` must begin generation with a native tool-call tag, not prose;
+- named `tool_choice={type:function,function:{name:...}}` must force the selected function;
+- `tool_choice=none` must remain tool-free;
+- healthy `tool_choice=auto` behavior must not regress.
 
-Turn 1 generated tokens (skip_special=false):
-  <|tool_call>call:get_weather{city:<|"|>Berlin<|"|>}<tool_call|><|tool_response>
-  ids: [48, 6639, 236787, 828, 236779, 19323, 236782, 13319, 236787, 52, 89946, 52, 236783, 49, 50]
-Phases: UNKNOWN token 48 "<|tool_call>" → TOOL_CALLS_PROCESSING_TOOL → parse name get_weather → args city:<|"|>Berlin<|"|> → TOOL_CALLS_WAITING_FOR_TOOL sees "<|tool_response>" (token 50) then STOP. Response: finish_reason=tool_calls, content="", arguments JSON {"city":"Berlin"}. Same pattern for Paris and London on later turns. Parser is fine on unconstrained native markup.
+The relevant failure is NovaClaw later-turn behavior where Gemma4 may say `сейчас запущу` / `я использую` instead of emitting a tool call soon enough. An output parser cannot manufacture a tool call from prose.
 
-Jinja already prefixes the model turn with an EMPTY thought channel:
-  <|turn>model
-  <|channel>thought
-  <channel|>
-Do NOT also force a thinking SequenceFormat in the builder unless enable_thinking is actually on. The draft builder correctly omits thought tags.
+## Live evidence, 2026-09-05
 
-Chat template adapter TRACE: supportsToolCalls=true, dry-run overrides requiresObjectArguments false → true. Keep that.
+Sequential Windows GPU probe against `gemma4-26-heretic` at `127.0.0.1:8000`, temperature 0, max_tokens 256:
 
-Graph for this runtime: pipeline_type VLM, device GPU, no CB, queue 1, JINJA, DYNAMIC_QUANTIZATION_GROUP_SIZE=0. tool_parser is auto-detected gemma4. enable_tool_guided_generation is currently false by policy in the diagnostic pack; implementing the builder is allowed, turning it on in the diagnostic baseline graph is a SEPARATE decision.
+- 17 HTTP 200 cases;
+- 14 structured `message.tool_calls`;
+- zero raw tool markup leaks in `content`;
+- ordinary `auto` calls work for strings, numbers, enums, nested objects, arrays, Cyrillic, parallel calls, streaming, file writes and shell commands;
+- `tool_choice=none` works;
+- first-turn Russian `required` works unconstrained;
+- a conflicting named `get_weather` choice is ignored by the current runtime and returns prose/math instead;
+- one native Windows-path array arrived with the wrong JSON type, so parser coverage is still required.
 
-Checkout rules:
-- OVMS source: C:\git\model_server-gemma4  (live patched 530dc63 — do not git reset --hard, do not commit/push from here)
-- PR worktree if committing: C:\git\model_server-pr-gemma4 targeting main-2026.4
-- Helper: this repository
+Conclusion: **do not globally constrain auto mode just because a builder now exists.**
 
-## Clone this pattern
-Files:
-  src/llm/io_processing/hermes3/generation_config_builder.{hpp,cpp}
-  src/llm/io_processing/llama3/generation_config_builder.cpp
-  src/llm/io_processing/generation_config_builder.hpp
-  src/llm/io_processing/base_generation_config_builder.{hpp,cpp}
-  src/llm/io_processing/gemma4/gemma4_tool_parser.{hpp,cpp}
-  src/llm/BUILD  (ovms_cc_library name = generation_config_builders)
-  src/test/llm/output_parsers/gemma4_output_parser_test.cpp
+## Existing OVMS gap
 
-Factory today (draft snippet adds gemma4 BEFORE the else that warns):
-  llama3 → Llama3GenerationConfigBuilder
-  qwen3/hermes3 → Hermes3GenerationConfigBuilder
-  phi4 → Phi4GenerationConfigBuilder
-  devstral → DevstralGenerationConfigBuilder
-  else → BaseGenerationConfigBuilder + debug warning
+OVMS 2026.4 has `Gemma4ToolParser` and recognizes `tool_parser=gemma4`, but `GenerationConfigBuilder` has no Gemma4 branch. The fallback is `BaseGenerationConfigBuilder`, so request-level `required`/named choice has no model-specific structured generation enforcement.
 
-Hermes3 logic the draft already copies:
-  1. Call BaseGenerationConfigBuilder::parseConfigFromRequest(request) first.
-  2. Return early if request.toolNameSchemaMap.empty().
-  3. If enableToolGuidedGeneration || request.toolChoice == "required":
-       TriggeredTags + per-tool Tag{begin, end, content=JSONSchema}
-       if toolChoice == "required": at_least_one = true
-       setStructuralTagsConfig
-  4. tool_choice=auto + guided=false: no tags (unconstrained; parser still works).
-  5. If validateStructuredOutputConfig throws, existing serving code unsets structured config — keep that hatch.
+Add the factory branch from `generation_config_builder.hpp.snippet` and the BUILD entries from `BUILD.snippet` when testing in an OVMS worktree.
 
-## Ground-truth Gemma4 wire format
-Special tokens on this checkpoint:
-  48 <|tool_call>     stc_token
-  49 <tool_call|>     etc_token
-  50 <|tool_response>
-  52 <|"|>            string delimiter
-  100 <|channel>
-  101 <channel|>
+## Generator policy
 
-Native call (unconstrained TRACE):
-  <|tool_call>call:FUNC{key:<|"|>value<|"|>,num:42}<tool_call|>
-Name regex (tokenizer_config.json):
-  call\:(?P<name>\w+)(?P<arguments>\{.*\})
-Optional thinking then tools:
-  (<\|channel\>thought\n(?P<thinking>.*?)\<channel\|>)?(?P<tool_calls>\<\|tool_call\>.*\<tool_call\|>)?
+The draft implementation in `overlay/.../gemma4/generation_config_builder.cpp` intentionally uses two different structural modes.
 
-## Prior art
-1) xgrammar builtin Gemma4 structural tag — the mapping the DRAFT already uses.
-   https://github.com/mlc-ai/xgrammar/pull/588
-   python/xgrammar/builtin_structural_tag.py  get_gemma4_structural_tag
-   TOOL_CALL_BEGIN_PREFIX = "<|tool_call>call:"
-   TOOL_CALL_END = "<tool_call|>"
-   TOOL_CALL_TRIGGER = "<|tool_call>"
-   auto: TriggeredTagsFormat(triggers=[TRIGGER], tags=tags)
-   required: same + at_least_one=True
-   Intel OVMS main still has NO gemma4 factory branch as of 2026-09-05.
+### 1. `auto`, guided=false
 
-2) vLLM Gemma4 parser / recipes (format + streaming pitfalls, not the OVMS class):
-   https://github.com/vllm-project/vllm/blob/main/vllm/parser/gemma4.py
-   https://docs.vllm.ai/projects/recipes/en/stable/Google/Gemma4.html
-   --tool-call-parser gemma4 --reasoning-parser gemma4 --enable-auto-tool-choice
-   Fallback if special tokens stripped: bare call:name{args}
-   Known: streaming split of <|"|> (vLLM #38946); skip_special_tokens hiding channel markers. OVMS TRACE already has NeedsSpecialTokens: true.
+Do nothing beyond the base config. The live model already emits healthy native Gemma4 tool calls and the parser converts them to OpenAI `message.tool_calls`.
 
-3) Google:
-   https://ai.google.dev/gemma/docs/core/prompt-formatting-gemma4
+### 2. `auto`, guided=true
 
-4) OVMS docs claim enable_tool_guided_generation works whenever tool_parser is set. True for hermes3/llama3/phi4/devstral. FALSE for gemma4 until factory + builder are wired.
+Use `TriggeredTags`:
 
-## CRITICAL gate B — do not ship guided gen without this
-xgrammar JSONSchema content after begin="<|tool_call>call:get_weather" produces:
-  <|tool_call>call:get_weather{"city":"Berlin"}<tool_call|>
-TRACE of the unconstrained model produces native:
-  <|tool_call>call:get_weather{city:<|"|>Berlin<|"|>}<tool_call|>
-Gemma4ToolParser::parseObjectParameter is written for the native <|"|> dialect.
+- trigger: `<|tool_call>`
+- tag begin: `<|tool_call>call:` + tool name
+- content: `JSONSchema(parameters)`
+- tag end: `<tool_call|>`
 
-You must:
-A. Keep the draft TriggeredTags mapping (already xgrammar-compatible). Do not add '{' to begin.
-B. Add parser/unit tests for BOTH native and guided-JSON argument forms. If JSON-after-name mangles arguments, FIX THE PARSER in the same change (detect a JSON object and pass through). Do not invent a custom <|"|> grammar unless GenAI actually exposes that grammar type.
-C. Do not enable enable_tool_guided_generation in diagnostic vlm-stable until B is green.
-D. tool_choice=required for NovaClaw is allowed once A+B are wired, even if the diagnostic graph keeps guided=false.
+This allows normal prose/content until the model chooses the tool trigger, then constrains the call body.
 
-## Remaining work after the draft
-1. Copy overlay files into an OVMS worktree; apply factory + BUILD snippets.
-2. Add unit tests for parseConfigFromRequest (no tools / auto+guided=false / auto+guided=true / required).
-3. Keep Gemma4OutputParserTest.* green; add JSON-after-name cases.
-4. Rebuild full package (not ovms.exe alone). Verify:
-   - unconstrained auto still matches TRACE native path
-   - required forces token 48 / message.tool_calls on a "сейчас запущу" style prompt
-   - factory no longer logs "will not be effective" for gemma4 when guided is on
-5. Do not git reset --hard a correctly patched parser tree. Do not skip parser tests.
+### 3. `required` and named tool choice
 
-## Local evidence
-TRACE log: C:\llm\ovms-trace-gemma4.log
-NovaClaw: C:\Users\testc\AppData\Roaming\app.novaclaw.desktop\logs\20260905T002223\server.log
-  session.tool.textual.recovered promised-tool; session.steer.stream.interrupted
-Runtime: C:\llm\ovms-gemma4-patched  model gemma4-26-heretic  REST 8000
+Use a **top-level `TagsWithSeparator`**, not `TriggeredTags`:
+
+- tags: all currently allowed tool tags;
+- separator: empty string;
+- `at_least_one=true`;
+- `stop_after_first=false`.
+
+Reason: `TriggeredTags` only constrains generation *after* the model emits the trigger. It cannot prevent `сейчас запущу...` before `<|tool_call>`. A top-level tag sequence constrains output from grammar start and is the candidate mechanism for forcing token 48 (`<|tool_call>`) as the first generated token.
+
+OVMS `OpenAIApiHandler` normalizes a named tool choice to the function name and filters `toolNameSchemaMap` to that function. Therefore the builder can treat every non-reserved (`auto`/`none`/`required`) value as a named hard choice.
+
+### 4. `none`
+
+Return without installing tool structured output even if graph-level `enable_tool_guided_generation=true`.
+
+## Pinned GenAI support
+
+The OVMS 2026.4 dependency exposes:
+
+- `JSONSchema`
+- `EBNF`
+- `Concat`
+- `Union`
+- `Tag`
+- `TriggeredTags`
+- `TagsWithSeparator`
+
+`TagsWithSeparator` has `separator`, `at_least_one`, and `stop_after_first` and is exercised by OpenVINO GenAI structured-output tests. Do not rewrite the hard path back to `TriggeredTags` merely to resemble Hermes3.
+
+## Wire-format gate: mandatory
+
+Hard/generated tag bodies currently use standard `JSONSchema`, therefore expected guided output is:
+
+```text
+<|tool_call>call:get_weather{"city":"Berlin"}<tool_call|>
+```
+
+The checkpoint's unconstrained native format is:
+
+```text
+<|tool_call>call:get_weather{city:<|"|>Berlin<|"|>}<tool_call|>
+```
+
+`Gemma4ToolParser` was written primarily for the native `<|"|>` dialect. Before runtime enablement, add parser tests and support for **both**:
+
+1. native Gemma4 arguments;
+2. standard JSON arguments produced by `JSONSchema` guided generation.
+
+Prefer detecting a complete valid JSON object and passing it through canonically before falling back to the existing native parser. Do not translate valid JSON back into `<|"|>` syntax.
+
+Also cover the observed native array/type problem with Windows paths.
+
+## XGrammar warning
+
+Historical XGrammar PR #588 added a Gemma4 structural tag using standard JSON arguments. That PR is useful historical evidence for tag boundaries, **not current ground truth**.
+
+Current XGrammar later disabled Gemma4 registration because Gemma4's native parameter format wraps strings with `<|"|>` rather than ordinary JSON quotes. Do not cite #588 as proof that current XGrammar supports Gemma4 native parameter grammar.
+
+## Required tests
+
+Builder/config tests:
+
+1. no tools -> no structural config;
+2. `none` -> no tool structural config even with graph guided=true;
+3. `auto`, guided=false -> no structural config;
+4. `auto`, guided=true -> `TriggeredTags`;
+5. `required`, guided=false -> top-level `TagsWithSeparator`, at least one;
+6. named tool, guided=false -> top-level `TagsWithSeparator` containing only selected tool.
+
+Parser tests:
+
+- native scalar strings/numbers/bool/null;
+- guided standard JSON object;
+- nested object;
+- arrays;
+- Windows paths/backslashes;
+- strings containing commas/colons/braces;
+- multiple tool calls;
+- streaming splits around `<|tool_call>`, braces, quotes / `<|"|>`, and `<tool_call|>`.
+
+End-to-end acceptance on rebuilt Windows package:
+
+- rerun the existing 17-case auto probe with no regression;
+- conflicting named `get_weather` request must emit `get_weather` instead of answering the math;
+- later-turn NovaClaw-style `required` prompts must emit `message.tool_calls` without a preceding textual promise;
+- TRACE/token capture must demonstrate first generated token `48` for hard choice;
+- `tool_choice=none` remains content-only;
+- streaming remains structured and leak-free.
+
+## Deployment rules
+
+- Do not modify the live patched OVMS checkout in place; use a separate worktree for implementation/build.
+- Do not enable `enable_tool_guided_generation` in diagnostic `vlm-stable` as part of the builder change.
+- Do not treat helper Python source-string tests as C++ acceptance.
+- Rebuild and deploy the full OVMS Windows package, not `ovms.exe` alone.
+- Keep the existing unconstrained auto path as the control group throughout testing.
