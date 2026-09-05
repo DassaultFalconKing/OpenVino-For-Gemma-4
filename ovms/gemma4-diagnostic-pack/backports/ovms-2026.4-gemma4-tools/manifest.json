@@ -40,7 +40,9 @@
     "require_message_tool_calls": true,
     "reject_raw_tool_markup_in_content": true,
     "hard_choice_requires_empty_content": true,
-    "hard_choice_first_generated_token_id": 48,
+    "hard_choice_requires_tool_marker_at_output_start": "<|tool_call>",
+    "hard_choice_accepts_atomic_or_fragmented_marker_tokenization": true,
+    "hard_choice_token_id_48_is_diagnostic_only": true,
     "graph_enable_tool_guided_generation_default": false,
     "parser_accepts_native_and_guided_json_arguments": true,
     "guided_json_streaming_and_unary": true,
@@ -48,6 +50,8 @@
     "exhaustive_structural_marker_split_tests": true,
     "nested_objects_preserve_structure": true,
     "arrays_preserve_json_types": true,
-    "windows_paths_are_json_escaped_not_stringified": true
+    "windows_paths_are_json_escaped_not_stringified": true,
+    "generation_length_truncation_is_not_parser_invalid_json": true,
+    "gpu_context_fatal_errors_are_separate_runtime_stability_evidence": true
   }
 }
