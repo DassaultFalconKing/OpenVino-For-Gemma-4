@@ -1,33 +1,38 @@
-# GEMMAMONSTER Gemma4 portable OVMS tester handoff
+# GEMMAMONSTER Gemma4 OVMS RC1 tester handoff
 
-This is an acceptance session, not a development session. Build a fresh OVMS source tree from the pinned baseline, apply the portable stack, run parser tests, then exercise the real Heretic model through the OpenAI-compatible API.
+This is an acceptance session, not a development session. Do not patch the OVMS candidate while running this handoff unless a new source-level defect is proven independently from generation limits or GPU context failures.
 
 ## Authority coordinates
 
 - OVMS baseline: `530dc63f816507d18bc14629e8cffeb55e3985e6`
-- upstream parser fixes: `503ff866278e9236d08bc9b6ddd18ec879660f72`, `95628b45a082bd3d9562a3ad2f3d0762d5883ca4`
-- published streaming-hardening range: `6f5b48ece2078e32268b87402cc206e8b2772da8..721e13d12c0fd4820ccc4bd06a866963c6524da5`
-- runtime-proven candidate range: `721e13d12c0fd4820ccc4bd06a866963c6524da5..fd0c86c77ce6812fd6c77d9c8ee16a7dd7cb973b`
-- canonical model_server integration branch: `integration/gemmamonster-gemma4-portable-tools`
-- deployment branch: `feature/gemmamonster-portable-gemma4-stack`
+- canonical model_server candidate branch: `integration/gemma4-2026.4-rc1-contiguous`
+- candidate HEAD: `0a537f08987a3df4c0254c1614162c06ac20b968`
+- deployment/backport branch: `fix/gemma4-candidate-local-acceptance`
+- portable manifest: `ovms/gemma4-diagnostic-pack/backports/ovms-2026.4-gemma4-tools/manifest.json`
 
-The experimental `hardening/gemma4-heretic-parser-streaming @ 3bbc47949eb35fe70cfd098d52dc62c306774396` is research evidence only. Do not apply its synthetic truncated-call closure logic in this acceptance run.
+The portable manifest contains one contiguous delta:
+
+```text
+530dc63f816507d18bc14629e8cffeb55e3985e6
+  ->
+0a537f08987a3df4c0254c1614162c06ac20b968
+```
+
+`upstream_commits` is intentionally empty. The selected candidate already contains the relevant post-refactor Gemma4 parser state. Do not re-apply the old pre-refactor `721e13d..fd0c86c` lineage.
 
 ## 1. Fresh source checkout
 
-Windows example:
+Use a clean OVMS checkout at the exact baseline:
 
 ```powershell
 git clone https://github.com/openvinotoolkit/model_server.git C:\git\ovms-gemmamonster-acceptance
-git -C C:\git\ovms-gemmamonster-acceptance checkout 530dc63f816507d18bc14629e8cffeb55e3985e6
+git -C C:\git\ovms-gemmamonster-acceptance checkout --detach 530dc63f816507d18bc14629e8cffeb55e3985e6
 git -C C:\git\ovms-gemmamonster-acceptance status --short
 ```
 
 The final command must print nothing.
 
-Do not reuse the old locally repaired worktree. The point of this run is reproducibility.
-
-## 2. Apply the portable stack
+## 2. Apply the portable candidate
 
 From this deployment repository/branch:
 
@@ -36,210 +41,123 @@ python .\ovms\gemma4-diagnostic-pack\backports\ovms-2026.4-gemma4-tools\apply_ba
   --model-server C:\git\ovms-gemmamonster-acceptance
 ```
 
-Expected characteristics:
+The parameter is `--model-server`, not `--model-server-path`.
 
-- source checkout remains at the pinned baseline commit;
-- parser/generator changes are ordinary unstaged source changes;
-- no Windows build paths are written by the portable applier;
-- `src/llm/io_processing/gemma4/generation_config_builder.cpp` exists;
-- factory and Bazel wiring exist;
-- parser contains reasoning→tool handling, structural holdback, recursive native values and guided JSON support on both streaming and unary paths.
-
-If apply fails, stop and return the complete command output. Do not hand-edit the source tree to make the test continue.
-
-## 3. Build a complete Windows package
-
-The Windows build adapter is allowed to contain Windows-specific toolchain workarounds. Those are build policy, not parser/generation business logic.
-
-On a fresh baseline you may let the wrapper call the portable applier itself:
-
-```powershell
-.\ovms\gemma4-diagnostic-pack\backports\ovms-2026.4-gemma4-tools\build-windows.ps1 `
-  -ModelServerPath C:\git\ovms-gemmamonster-acceptance `
-  -DependenciesRoot opt `
-  -DeployTo C:\llm\ovms-gemmamonster-acceptance
-```
-
-If you already ran `apply_backport.py` in step 2, add `-SkipApply`.
-
-Use `-InstallDependencies` only if that checkout does not already have the required OVMS Windows dependencies.
-
-Acceptance requires the full package, not a copied `ovms.exe` over an older directory.
-
-## 4. Parser regression gate
-
-After build and model preparation, run explicitly:
-
-```powershell
-C:\git\ovms-gemmamonster-acceptance\bazel-bin\src\ovms_test.exe `
-  --gtest_filter="Gemma4OutputParserTest.*:Gemma4StreamingHardeningTest.*:*Gemma4MarkerSplitTest*"
-```
-
-Record exact test count and exit code. Required: zero failures.
-
-Particularly inspect failures involving:
-
-- every byte split of `<|tool_call>`, `<tool_call|>`, `<channel|>`, `<turn|>`, `<|tool_response>`;
-- reasoning→tool without `<channel|>`;
-- nested object and arrays;
-- Windows-style path escaping;
-- 4KB multiline arguments;
-- two consecutive tool calls;
-- guided JSON in streaming and unary parsing;
-- finish during a partial structural token without inventing a tool call.
-
-## 5. Launch the real model
-
-Use the packaged/deployed OVMS from this run and the normal `vlm-stable` graph.
-
-Model used by the previous acceptance:
+After apply, `git diff --name-only` must show only:
 
 ```text
-gemma4-26-heretic
+src/llm/io_processing/gemma4/gemma4_tool_parser.cpp
+src/llm/io_processing/gemma4/gemma4_tool_parser.hpp
+src/llm/io_processing/generation_config_builder.hpp
+src/llm/io_processing/output_parser.cpp
 ```
 
-Keep graph-level `enable_tool_guided_generation` OFF. Request-level `required` and named choice are the hard-generation acceptance path.
+If legacy `base_output_parser.hpp` or `gemma4_reasoning_parser.*` conflicts appear, stop: the wrong candidate/manifest is being used.
 
-For token evidence, capture a second run with OVMS TRACE and verbose response logging enabled.
+## 3. Build a fresh Windows package
 
-## 6. Fast smoke
+Build from the patched source tree and deploy into a new directory. Do not copy a new `ovms.exe` over an old package and do not reuse a stale server process.
 
-```powershell
-python .\ovms\gemma4-diagnostic-pack\backports\ovms-2026.4-gemma4-tools\smoke_tool_call.py `
-  --base-url http://127.0.0.1:8000 `
-  --model gemma4-26-heretic `
-  --mode all
-```
-
-Required:
-
-- `auto` returns structured `tool_calls`;
-- `required` returns a tool call with empty assistant prose;
-- named conflicting choice actually calls the named tool;
-- no raw Gemma tool markup reaches `content`.
-
-Also verify `tool_choice=none` through the matrix below.
-
-## 7. Adversarial runtime matrix
-
-```powershell
-python .\ovms\gemma4-diagnostic-pack\backports\ovms-2026.4-gemma4-tools\toolcall_matrix.py `
-  --base-url http://127.0.0.1:8000 `
-  --model gemma4-26-heretic `
-  --output C:\llm\gemma4-toolcall-matrix.json
-```
-
-The matrix covers:
-
-- `tool_choice_none`;
-- `tool_choice_required`;
-- `tool_choice_named_conflict`;
-- nested object arguments;
-- arrays of strings and path escaping;
-- long multiline `write_file` payload;
-- shell quoting/pipes/braces;
-- parallel calls;
-- streaming tool-call assembly;
-- assistant→tool→assistant roundtrip.
-
-A `WARN` is model-quality evidence, not automatically a parser failure. Example: named tool is correctly enforced but the model chooses a silly semantically valid argument. A `FAIL` is structural/runtime evidence.
-
-### Issue taxonomy
-
-- `PARSER_MARKUP_LEAK`: structural token leaked into OpenAI content.
-- `HARD_CHOICE_PROSE`: required/named emitted prose before the tool call.
-- `TOOL_CHOICE_NOT_ENFORCED`: hard choice produced no tool call.
-- `WRONG_TOOL_NAME`: named choice did not select the requested tool.
-- `TOOL_NAME_MISSING`: tool event exists but function name was lost.
-- `ARGUMENTS_INVALID_JSON`: parser emitted malformed JSON argument text.
-- `ARGUMENT_TYPE_DRIFT`: object/array became a string or otherwise changed JSON type.
-- `STREAMING_STRUCTURE_LOSS`: streaming never exposed both tool identity and argument data.
-- `ROUNDTRIP_RECALL`: model called the tool again after its result instead of continuing.
-- `MODEL_ARGUMENT_QUALITY`: protocol is valid but model selected a poor argument value.
-- `MODEL_PARALLEL_CALL_QUALITY`: protocol is valid but the model did not produce both requested calls.
-
-## 8. TRACE hard-choice gate
-
-For each of these requests capture the generated token sequence:
-
-1. `tool_choice="required"`
-2. named `tool_choice={"type":"function","function":{"name":"get_weather"}}`
-
-Required first generated token:
+Record:
 
 ```text
-48  ==  <|tool_call>
+OVMS_BASE
+APPLIED_CANDIDATE
+PACKAGE_PATH
+ovms.exe SHA256
+git diff --name-only
+git diff --stat
 ```
 
-Control witness:
+`ovms.exe --version` is supplementary evidence only; it does not prove the working-tree candidate delta.
+
+## 4. Gemma4 functional acceptance
+
+Keep `tool_parser=gemma4`, `reasoning_parser=gemma4` and graph-level `enable_tool_guided_generation=false`.
+
+Required runtime cases:
+
+- `tool_choice=auto`: structured tool call when appropriate, no raw Gemma markup in content;
+- `tool_choice=none`: content-only answer, no tool calls;
+- `tool_choice=required`: empty assistant prose and structured tool call;
+- named `tool_choice`: empty assistant prose and the requested tool name;
+- nested objects preserve object structure;
+- arrays preserve array structure and scalar types;
+- shell quoting/braces/pipes survive as valid JSON arguments;
+- streaming exposes both tool name and argument deltas without marker leakage;
+- assistant -> tool result -> later assistant tool turn works without prefatory prose.
+
+## 5. Correct hard-generation gate
+
+Hard generation is a **decoded-output semantic gate**, not an exact token-ID gate.
+
+For `required` and named hard choice, the first decoded output must begin immediately with:
 
 ```text
-tool_choice="none" must not start with token 48
+<|tool_call>
 ```
 
-If required/named begins with prose/reasoning and only later reaches token 48, hard generation is a FAIL even if a later parser event looks correct.
+before any prose or reasoning.
 
-## 9. Later-turn agent witness
-
-Run at least one conversation shaped like:
+Both of these are valid witnesses:
 
 ```text
-user -> assistant tool call -> tool result -> assistant -> user asks for another action -> required/named tool call
+48  -> "<|tool_call>"
 ```
 
-Required on the second tool turn:
-
-- empty assistant prose;
-- structured tool event immediately;
-- correct function name;
-- valid JSON arguments;
-- no repeated old tool;
-- TRACE begins with token 48.
-
-This is the NovaClaw-style witness. First-turn-only success is not sufficient.
-
-## 10. Return report
-
-Return exactly these coordinates and outcomes:
+and a fragmented tokenization such as:
 
 ```text
-GEMMAMONSTER GEMMA4 PORTABLE ACCEPTANCE
-
-DEPLOY_BRANCH_HEAD:
-OVMS_BASE:
-APPLIED_CANDIDATE:
-BUILD:
-PACKAGE_PATH:
-
-PARSER_GTEST_COUNT:
-PARSER_GTEST_RESULT:
-
-SMOKE_AUTO:
-SMOKE_NONE:
-SMOKE_REQUIRED:
-SMOKE_NAMED:
-
-MATRIX_PASS:
-MATRIX_WARN:
-MATRIX_FAIL:
-MATRIX_REPORT_PATH:
-
-TRACE_REQUIRED_FIRST_TOKEN:
-TRACE_NAMED_FIRST_TOKEN:
-TRACE_NONE_FIRST_TOKEN:
-
-LATER_TURN:
-
-TYPICAL_PROBLEMS:
-- case:
-  classification:
-  request:
-  actual:
-  expected:
-  relevant log:
-
-VERDICT:
-PASS / FAIL / BLOCKED
+"<", "|", "tool", "_", "call", ">"
 ```
 
-Do not call the candidate PASS when only compilation succeeded. Build, parser tests, runtime matrix and hard-choice token evidence are separate gates.
+provided the concatenated decoded bytes begin exactly with `<|tool_call>` and the OpenAI result contains an empty `content` plus structured `tool_calls`.
+
+Token ID `48` remains useful diagnostic evidence because it is Gemma4's atomic tool-start special token, but structured-output grammar constrains the generated text/structure and does not contractually require one particular tokenizer path for that text.
+
+A hard-generation FAIL is instead any of:
+
+- prose/reasoning appears before `<|tool_call>`;
+- no tool call is produced;
+- named choice selects the wrong tool;
+- raw tool markup leaks to visible `content`.
+
+Control: `tool_choice=none` must not begin with `<|tool_call>`.
+
+## 6. Multiline runtime lane versus parser stress lane
+
+Do not use a 4.6 KB model-generated `write_file` body with `max_tokens=2048` as a parser acceptance gate. If generation reaches `finish_reason=length`, the model output is truncated by definition. An empty/incomplete tool argument at that point must be classified as `TRUNCATION`, not as proof that the parser emitted invalid JSON.
+
+For the live Heretic runtime matrix, use a bounded multiline payload that still exercises newlines, quotes, commas, braces and backslashes but is comfortably below the generation ceiling (roughly 1-1.5 KB is sufficient for this lane).
+
+Keep the 4 KB+ adversarial payload as a parser-only/unit stress test or as a separate capacity/stability stress test with its own outcome. Do not synthesize missing JSON closure when generation is truncated.
+
+## 7. CL_OUT_OF_RESOURCES handling
+
+If the GPU reports `CL_OUT_OF_RESOURCES`, stop interpreting all later requests from that server process. The OpenCL context may be unusable and OVMS can remain falsely `AVAILABLE` while every inference returns HTTP 400 until restart.
+
+This is already tracked upstream as `openvinotoolkit/model_server#4469`: permanent `LLMExecutor` wedge after `CL_OUT_OF_RESOURCES` with readiness still reporting healthy. It is separate from Gemma4 tool parser/generation correctness.
+
+After any `CL_OUT_OF_RESOURCES` during acceptance:
+
+1. preserve the failure log;
+2. terminate/restart OVMS;
+3. verify one tiny tool-free inference succeeds;
+4. resume only independent cases;
+5. record the GPU failure under runtime stability, not parser correctness.
+
+## 8. Verdict dimensions
+
+Return separate verdicts instead of collapsing unrelated evidence into one word:
+
+```text
+GEMMA4_TOOL_STACK: PASS / FAIL / BLOCKED
+PARSER_STREAMING: PASS / FAIL / BLOCKED
+HARD_GENERATION: PASS / FAIL / BLOCKED
+LATER_TURN_AGENT: PASS / FAIL / BLOCKED
+GPU_LONG_GENERATION_STABILITY: PASS / FAIL / BLOCKED
+OVMS_FATAL_GPU_RECOVERY: PASS / FAIL / BLOCKED
+OVERALL_PACKAGE: PASS / CONDITIONAL / FAIL / BLOCKED
+```
+
+A candidate may be accepted for the Gemma4 tool stack while retaining a separate known upstream GPU recovery defect. Do not move the model_server candidate SHA merely to work around `CL_OUT_OF_RESOURCES` unless a source-level regression in the candidate is demonstrated.
