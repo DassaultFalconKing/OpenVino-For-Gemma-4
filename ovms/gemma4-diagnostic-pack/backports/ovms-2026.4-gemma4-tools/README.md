@@ -118,6 +118,10 @@ Stop OVMS first. Then use `-ForceDeploy`:
 
 The old runtime is renamed to a timestamped backup before the new package is copied.
 
+## Frozen RC1 baseline
+
+Accepted Gemma4 tool-calling RC1 runtime is exact candidate `0a537f08987a3df4c0254c1614162c06ac20b968` on `530dc63f`. See [`RC1-ACCEPTANCE.md`](RC1-ACCEPTANCE.md). Later tool-stack changes must start from that SHA and prove no regression. Main `multiline_write` is a ~1.2 KB bounded witness (`max_tokens=2048`); do not use the old ~4.6 KB write as a promotion gate.
+
 ## Runtime acceptance
 
 First rerun the ordinary auto smoke test:

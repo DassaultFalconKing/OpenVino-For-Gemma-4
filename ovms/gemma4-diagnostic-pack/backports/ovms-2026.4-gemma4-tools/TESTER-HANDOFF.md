@@ -6,7 +6,8 @@ This is an acceptance session, not a development session. Do not patch the OVMS 
 
 - OVMS baseline: `530dc63f816507d18bc14629e8cffeb55e3985e6`
 - canonical model_server candidate branch: `integration/gemma4-2026.4-rc1-contiguous`
-- candidate HEAD: `0a537f08987a3df4c0254c1614162c06ac20b968`
+- **Accepted Gemma4 tool-calling RC1 candidate HEAD:** `0a537f08987a3df4c0254c1614162c06ac20b968`
+- Freeze and regression rule: [`RC1-ACCEPTANCE.md`](RC1-ACCEPTANCE.md)
 - deployment/backport branch: `fix/gemma4-candidate-local-acceptance`
 - portable manifest: `ovms/gemma4-diagnostic-pack/backports/ovms-2026.4-gemma4-tools/manifest.json`
 
@@ -19,6 +20,8 @@ The portable manifest contains one contiguous delta:
 ```
 
 `upstream_commits` is intentionally empty. The selected candidate already contains the relevant post-refactor Gemma4 parser state. Do not re-apply the old pre-refactor `721e13d..fd0c86c` lineage.
+
+This SHA is frozen as the accepted Gemma4 tool-calling RC1 baseline. Later tool-stack work starts from `0a537f0` and must prove no regression against the freeze. Main `multiline_write` is bounded (~1–1.5 KB, `max_tokens=2048`); do not use ~4.6 KB write stress as a promotion gate.
 
 ## 1. Fresh source checkout
 
@@ -155,9 +158,10 @@ GEMMA4_TOOL_STACK: PASS / FAIL / BLOCKED
 PARSER_STREAMING: PASS / FAIL / BLOCKED
 HARD_GENERATION: PASS / FAIL / BLOCKED
 LATER_TURN_AGENT: PASS / FAIL / BLOCKED
+MULTILINE_BOUNDED: PASS / FAIL / BLOCKED
 GPU_LONG_GENERATION_STABILITY: PASS / FAIL / BLOCKED
 OVMS_FATAL_GPU_RECOVERY: PASS / FAIL / BLOCKED
-OVERALL_PACKAGE: PASS / CONDITIONAL / FAIL / BLOCKED
+OVERALL_GEMMA4_TOOL_CANDIDATE: PASS / FAIL / BLOCKED
 ```
 
 A candidate may be accepted for the Gemma4 tool stack while retaining a separate known upstream GPU recovery defect. Do not move the model_server candidate SHA merely to work around `CL_OUT_OF_RESOURCES` unless a source-level regression in the candidate is demonstrated.

@@ -35,6 +35,26 @@
     }
   ],
   "purpose": "Reconstruct Gemma4 parser hardening plus request-level hard tool-choice generation directly on the OVMS 2026.4 RC1 530dc63f source baseline without legacy BaseOutputParser API drift.",
+  "accepted_runtime": {
+    "status": "accepted_gemma4_tool_calling_rc1_baseline",
+    "candidate_head": "0a537f08987a3df4c0254c1614162c06ac20b968",
+    "source_base": "530dc63f816507d18bc14629e8cffeb55e3985e6",
+    "binary_sha256": "A9DEB1FD68040298CEE03B80353D25CCF604AC5E725AD5B538C1A0B3A0A4B148",
+    "date": "2026-09-05",
+    "evidence": "RC1-ACCEPTANCE.md",
+    "multiline_main_acceptance": "bounded_1kb_to_1_5kb_max_tokens_2048",
+    "verdicts": {
+      "GEMMA4_TOOL_STACK": "PASS",
+      "PARSER_STREAMING": "PASS",
+      "HARD_GENERATION": "PASS",
+      "LATER_TURN_AGENT": "PASS",
+      "MULTILINE_BOUNDED": "PASS",
+      "GPU_LONG_GENERATION_STABILITY": "FAIL",
+      "OVMS_FATAL_GPU_RECOVERY": "FAIL",
+      "OVERALL_GEMMA4_TOOL_CANDIDATE": "PASS, subject to bounded multiline witness"
+    },
+    "regression_rule": "Subsequent tool-stack changes must land on top of candidate_head and prove no regression against RC1-ACCEPTANCE.md. Do not treat 4.6KB write stress as a main acceptance gate."
+  },
   "acceptance": {
     "tool_choice_modes": ["auto", "none", "required", "named"],
     "require_message_tool_calls": true,

@@ -1,5 +1,15 @@
 # Gemma4 parser/generator integration decision
 
+## Frozen RC1 baseline
+
+Accepted Gemma4 tool-calling RC1 baseline is exact candidate
+
+`0a537f08987a3df4c0254c1614162c06ac20b968`
+
+on source base `530dc63f816507d18bc14629e8cffeb55e3985e6`.
+
+Runtime freeze, split verdicts, bounded-multiline policy, and the regression rule live in [`RC1-ACCEPTANCE.md`](RC1-ACCEPTANCE.md). Later tool-stack changes go on top of that SHA and must prove no regression against that acceptance. `fd0c86c` remains historical lineage only; it is not the current RC1 runtime baseline.
+
 ## Candidates compared
 
 ### Runtime-proven candidate

@@ -9,6 +9,7 @@ The C++ changes are compiled into OVMS. A prebuilt `ovms.exe` cannot be patched 
 | Item | Value |
 |---|---|
 | OVMS source baseline | `530dc63f816507d18bc14629e8cffeb55e3985e6` (2026.4 RC1) |
+| Accepted tool-calling candidate | `0a537f08987a3df4c0254c1614162c06ac20b968` ([RC1-ACCEPTANCE.md](backports/ovms-2026.4-gemma4-tools/RC1-ACCEPTANCE.md)) |
 | Upstream parser fixes | `503ff866…`, `95628b45…` |
 | Local generation overlay | `Gemma4GenerationConfigBuilder` + factory/BUILD wiring + guided-JSON parser fast path |
 | Deployed runtime | `C:\llm\ovms-gemma4-patched` |

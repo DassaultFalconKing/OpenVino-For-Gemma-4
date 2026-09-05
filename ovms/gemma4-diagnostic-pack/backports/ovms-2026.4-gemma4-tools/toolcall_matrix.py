@@ -219,7 +219,10 @@ def base_payload(model: str, messages: list[dict[str, Any]], tools: list[dict[st
 def run_case(base_url: str, model: str, timeout: float, name: str) -> Result:
     sample_a = "C:\\sample\\alpha.txt"
     sample_b = "C:\\sample\\beta.json"
-    multiline = ("function demo(x) { return {items: [1, 2, 3], text: \\\"a,b:{c}\\\"}; }\n" * 80)[:4600]
+    # Main acceptance uses a bounded ~1.2KB payload. A ~4.6KB / max_tokens=2048
+    # write is GPU long-generation stress, not the Gemma4 tool-stack gate
+    # (see RC1-ACCEPTANCE.md).
+    multiline = ("function demo(x) { return {items: [1, 2, 3], text: \\\"a,b:{c}\\\"}; }\n" * 24)[:1200]
 
     if name == "tool_choice_none":
         payload = base_payload(model, [{"role": "user", "content": "Calculate 2+2."}], [CALCULATE], "none")

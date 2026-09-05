@@ -21,7 +21,8 @@ Run commands, inspect stdout/stderr/exit codes, fix root causes, and retry only 
 ## Pins
 
 - OVMS source checkout: `C:\git\model_server-gemma4`
-- Baseline: `530dc63f816507d18bc14629e8cffeb55e3985e6`
+- Source baseline: `530dc63f816507d18bc14629e8cffeb55e3985e6`
+- Accepted Gemma4 tool-calling RC1 candidate: `0a537f08987a3df4c0254c1614162c06ac20b968` ([`RC1-ACCEPTANCE.md`](ovms/gemma4-diagnostic-pack/backports/ovms-2026.4-gemma4-tools/RC1-ACCEPTANCE.md)). Later tool-stack changes go on top of this SHA and must prove no regression against that freeze.
 - Helper scripts: `ovms/gemma4-diagnostic-pack/backports/ovms-2026.4-gemma4-tools/`
 - Apply entry: `apply-backport.ps1`
 - Local generation integration: `apply-gemma4-generation-config.ps1`

@@ -14,7 +14,9 @@ def test_backport_manifest_pins_rc1_and_upstream_fixes():
     data = json.loads((BACKPORT / "manifest.json").read_text(encoding="utf-8"))
     assert data["repository"] == "openvinotoolkit/model_server"
     assert data["base_commit"] == BASE
-    assert data["upstream_commits"] == COMMITS
+    assert data["upstream_commits"] == []
+    assert data["selected_candidate_head"] == "0a537f08987a3df4c0254c1614162c06ac20b968"
+    assert data["accepted_runtime"]["candidate_head"] == data["selected_candidate_head"]
 
 
 def test_apply_script_applies_exact_commits_without_creating_git_commits():

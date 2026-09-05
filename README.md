@@ -8,6 +8,9 @@ fast and *coherent to 32K context* on Intel Arc B-series GPUs with OpenVINO GenA
 **Patched OVMS 2026.4 (Gemma4 `message.tool_calls` on Windows):** follow
 [ovms/gemma4-diagnostic-pack/INSTALL.md](ovms/gemma4-diagnostic-pack/INSTALL.md)
 (manual + agent). Agents should also read [AGENTS.md](AGENTS.md).
+Accepted Gemma4 tool-calling RC1 baseline: `0a537f08987a3df4c0254c1614162c06ac20b968`
+([RC1-ACCEPTANCE.md](ovms/gemma4-diagnostic-pack/backports/ovms-2026.4-gemma4-tools/RC1-ACCEPTANCE.md)).
+Later tool-stack changes go on top of that SHA and must prove no regression.
 
 **Working models, pre-patched, download and run:**
 - [gemma-4-26B-A4B heretic int4-ov](https://huggingface.co/Wondernutts/gemma-4-26B-A4B-it-qat-q4_0-unquantized-uncensored-heretic-int4-ov) (the fast MoE)
