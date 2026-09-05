@@ -14,10 +14,14 @@ $Commits = @(
     "503ff866278e9236d08bc9b6ddd18ec879660f72",
     "95628b45a082bd3d9562a3ad2f3d0762d5883ca4"
 )
+$LocalGenerationOverlay = Join-Path $PSScriptRoot "apply-gemma4-generation-config.ps1"
 
 $ModelServerPath = (Resolve-Path $ModelServerPath).Path
 if (-not (Test-Path (Join-Path $ModelServerPath ".git"))) {
     throw "ModelServerPath must point to an OVMS source checkout, not to an unpacked binary distribution: $ModelServerPath"
+}
+if (-not (Test-Path -LiteralPath $LocalGenerationOverlay -PathType Leaf)) {
+    throw "Local Gemma4 generation overlay patcher is missing: $LocalGenerationOverlay"
 }
 
 Push-Location $ModelServerPath
@@ -42,7 +46,7 @@ try {
     }
 
     try {
-        Write-Host "Applying Gemma4 parser fixes to the local worktree without creating Git commits:"
+        Write-Host "Applying upstream Gemma4 parser fixes without creating Git commits:"
         foreach ($commit in $Commits) {
             Write-Host "  applying $commit"
             git cherry-pick --no-commit $commit
@@ -51,22 +55,29 @@ try {
             }
         }
 
-        # Leave a normal locally-patched worktree rather than staged changes.
+        Write-Host "Integrating local Gemma4 GenerationConfigBuilder and dual-dialect parser support:"
+        & $LocalGenerationOverlay -ModelServerPath $ModelServerPath
+
+        # Both cherry-picked upstream changes and the local overlay are staged at
+        # this point. Leave a normal locally-patched worktree rather than staged
+        # changes or Git commits.
         git reset --mixed HEAD
-        if ($LASTEXITCODE -ne 0) { throw "Failed to unstage locally applied backport." }
+        if ($LASTEXITCODE -ne 0) { throw "Failed to unstage locally applied Gemma4 backport." }
     } catch {
         git cherry-pick --abort 2>$null
         git reset --hard $BaseCommit | Out-Null
-        throw "Backport application failed. The source worktree was restored to $BaseCommit. Details: $($_.Exception.Message)"
+        throw "Gemma4 backport application failed. The source worktree was restored to $BaseCommit. Details: $($_.Exception.Message)"
     }
 
     $patched = git status --short
     if ($LASTEXITCODE -ne 0) { throw "git status failed after backport application" }
     if (-not $patched) { throw "Backport produced no local source changes; refusing to report success." }
 
-    Write-Host "Gemma4 OVMS parser backport applied locally."
+    Write-Host "Gemma4 OVMS parser + hard tool-choice generation backport applied locally."
     Write-Host "  source base: $BaseCommit"
     Write-Host "  Git commits created: none"
+    Write-Host "  auto guided baseline: unchanged unless graph explicitly enables it"
+    Write-Host "  required/named tool_choice: hard structural generation installed"
     Write-Host "  local modified files:"
     $patched | ForEach-Object { Write-Host "    $_" }
 } finally {
