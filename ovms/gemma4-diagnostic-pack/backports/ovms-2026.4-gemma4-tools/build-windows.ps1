@@ -234,11 +234,48 @@ function Assert-WindowsBuildSucceeded {
     }
 }
 
+function Assert-Gemma4GuidanceIntegrated {
+    param([Parameter(Mandatory = $true)][string]$SourceRoot)
+
+    $builderSource = Join-Path $SourceRoot "src\llm\io_processing\gemma4\generation_config_builder.cpp"
+    $builderHeader = Join-Path $SourceRoot "src\llm\io_processing\gemma4\generation_config_builder.hpp"
+    foreach ($required in @($builderSource, $builderHeader)) {
+        if (-not (Test-Path -LiteralPath $required -PathType Leaf)) {
+            throw "Gemma4 generation guidance is not integrated: missing $required. Run without -SkipApply first."
+        }
+    }
+
+    $factoryPath = Join-Path $SourceRoot "src\llm\io_processing\generation_config_builder.hpp"
+    $buildPath = Join-Path $SourceRoot "src\llm\BUILD"
+    $parserPath = Join-Path $SourceRoot "src\llm\io_processing\gemma4\gemma4_tool_parser.cpp"
+
+    $factoryText = [System.IO.File]::ReadAllText($factoryPath)
+    if (-not $factoryText.Contains('#include "gemma4/generation_config_builder.hpp"') -or
+        -not $factoryText.Contains('toolParserName == "gemma4"')) {
+        throw "Gemma4 GenerationConfigBuilder exists but is not wired into the OVMS factory. Re-apply the backport from a clean pinned baseline."
+    }
+
+    $buildText = [System.IO.File]::ReadAllText($buildPath)
+    if (-not $buildText.Contains('io_processing/gemma4/generation_config_builder.cpp') -or
+        -not $buildText.Contains('io_processing/gemma4/generation_config_builder.hpp')) {
+        throw "Gemma4 GenerationConfigBuilder exists but is missing from src/llm/BUILD. Re-apply the backport from a clean pinned baseline."
+    }
+
+    $parserText = [System.IO.File]::ReadAllText($parserPath)
+    if (-not $parserText.Contains('guidedArgsDoc') -or
+        -not $parserText.Contains('guidedArgsDoc.IsObject()')) {
+        throw "Gemma4 parser lacks guided JSON argument compatibility. Refusing to build a hard-choice generator that its parser cannot consume."
+    }
+
+    Write-Host "Verified Gemma4 guidance integration before build: builder + factory + BUILD + dual-dialect parser."
+}
+
 $ModelServerPath = (Resolve-Path $ModelServerPath).Path
 
 if (-not $SkipApply) {
     & (Join-Path $PSScriptRoot "apply-backport.ps1") -ModelServerPath $ModelServerPath
 }
+Assert-Gemma4GuidanceIntegrated -SourceRoot $ModelServerPath
 
 $vs = Resolve-VisualStudioBuildTools -RequestedPath $VisualStudioPath
 Write-Host "Using Visual Studio 2022 Build Tools:"
@@ -270,7 +307,7 @@ try {
     Initialize-OvmsPythonEnvironment
 
     # JINJA mode requires the Python-enabled OVMS build. Build tests too so the
-    # upstream Gemma4 regression suite can be run before packaging the runtime.
+    # upstream Gemma4 suite plus our guided-JSON regression can run before packaging.
     Invoke-NativeProcess `
         -FilePath ".\windows_build.bat" `
         -ArgumentList @($DependenciesRoot, "--with_python", "--with_tests") `
