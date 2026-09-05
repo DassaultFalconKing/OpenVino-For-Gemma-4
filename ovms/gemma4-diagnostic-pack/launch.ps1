@@ -52,7 +52,8 @@ $graphText = Get-Content -Raw -Encoding UTF8 $TemplateGraph
 $graphText = $graphText.Replace("__MODEL_PATH__", $modelForGraph)
 $graphText = $graphText.Replace("__CHAT_TEMPLATE_MODE__", $ChatTemplateMode)
 $graphText = $graphText.Replace("__MAX_TOKENS_LIMIT__", $MaxTokensLimit.ToString())
-Set-Content -Path $RuntimeGraph -Value $graphText -Encoding UTF8
+$utf8NoBom = [System.Text.UTF8Encoding]::new($false)
+[System.IO.File]::WriteAllText($RuntimeGraph, $graphText, $utf8NoBom)
 
 $configObject = @{
     model_config_list = @()
@@ -63,7 +64,8 @@ $configObject = @{
         }
     )
 }
-$configObject | ConvertTo-Json -Depth 8 | Set-Content -Path $RuntimeConfig -Encoding UTF8
+$configJson = $configObject | ConvertTo-Json -Depth 8
+[System.IO.File]::WriteAllText($RuntimeConfig, $configJson, $utf8NoBom)
 
 Write-Host ""
 Write-Host "Gemma-4 OVMS profile prepared"

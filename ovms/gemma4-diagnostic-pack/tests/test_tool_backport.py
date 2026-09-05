@@ -43,6 +43,11 @@ def test_windows_build_script_builds_self_contained_package_and_can_deploy_elsew
     assert "$ForceDeploy" in text
     assert "dist\\windows\\ovms" in text
     assert "Copy-Item" in text
+    assert "C:\\BuildTools" in text
+    assert "Invoke-NativeProcess" in text
+    assert "Assert-WindowsBuildSucceeded" in text
+    assert "OPENCV_PYTHON_SKIP_DETECTION" in text
+    assert "python3.exe" in text
 
 
 def test_windows_build_detects_visual_studio_buildtools_in_both_program_files_roots():
@@ -91,4 +96,25 @@ def test_backport_readme_documents_local_patch_and_separate_deploy_path():
     assert "no Git commit" in text
     assert "-DeployTo" in text
     assert "source checkout" in text
-    assert "prebuilt ovms.exe" in text
+    assert "prebuilt" in text
+    assert "ovms.exe" in text
+
+
+def test_launch_script_writes_utf8_without_bom():
+    text = (ROOT / "launch.ps1").read_text(encoding="utf-8")
+    assert "UTF8Encoding" in text
+    assert "WriteAllText" in text
+    assert "Set-Content -Path $RuntimeConfig" not in text
+
+
+def test_install_docs_cover_manual_and_agent_paths():
+    install = (ROOT / "INSTALL.md").read_text(encoding="utf-8")
+    agents = (ROOT.parents[1] / "AGENTS.md").read_text(encoding="utf-8")
+    assert BASE in install
+    assert "-SkipApply" in install
+    assert "smoke_tool_call.py" in install
+    assert "git reset --hard" in install
+    assert "C:\\llm\\ovms-gemma4-patched" in install
+    assert "build-windows.ps1" in agents
+    assert "-SkipApply" in agents
+    assert "Gemma4OutputParserTest" in agents

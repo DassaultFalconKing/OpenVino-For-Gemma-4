@@ -37,6 +37,7 @@ function Resolve-VisualStudioBuildTools {
     # when a shell has inherited unusual ProgramFiles environment variables.
     $candidates.Add("C:\Program Files\Microsoft Visual Studio\2022\BuildTools")
     $candidates.Add("C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools")
+    $candidates.Add("C:\BuildTools")
 
     $seen = @{}
     foreach ($candidate in $candidates) {
@@ -104,6 +105,30 @@ function Set-OvmsVisualStudioPath {
             $patched = $text.Replace($hardcodedVs, $replacementVs)
             if ($name -eq "windows_install_build_dependencies.bat") {
                 $patched = $patched.Replace($hardcodedCmake, $replacementCmake)
+
+                # OpenCV 4.14's option(OPENCV_PYTHON3_VERSION) is a BOOL defaulting
+                # to OFF. Combined with a stray python3.exe on PATH, cmake then
+                # calls find_package(Python3 "OFF"), which is fatal. Intel also
+                # appends raw /GS /DYNAMICBASE /LTCG flags as extra cmake args;
+                # /DYNAMICBASE is parsed as -D and /LTCG as a path.
+                $hardcodedOpencvCmake = 'cmake -T v142 .. -D CMAKE_INSTALL_PREFIX=%opencv_install% -D OPENCV_EXTRA_MODULES_PATH=%opencv_contrib_dir%\modules %opencv_flags% %SDL_OPS%'
+                if (-not $patched.Contains($hardcodedOpencvCmake)) {
+                    throw "Pinned OVMS windows_install_build_dependencies.bat no longer contains the expected OpenCV cmake command."
+                }
+                $v142Root = $null
+                foreach ($candidate in @($VsPath, "C:\Program", "C:\BuildTools")) {
+                    $v142Cl = Get-ChildItem -Path (Join-Path $candidate "VC\Tools\MSVC\14.29*\bin\Hostx64\x64\cl.exe") -File -ErrorAction SilentlyContinue |
+                        Select-Object -First 1
+                    if ($v142Cl) {
+                        $v142Root = $candidate
+                        break
+                    }
+                }
+                if (-not $v142Root) {
+                    throw "OpenCV configure requires MSVC v142 (14.29.x), but cl.exe was not found under $VsPath, C:\Program, or C:\BuildTools."
+                }
+                $replacementOpencvCmake = "cmake -G `"Visual Studio 17 2022`" -T v142 `"-DCMAKE_GENERATOR_INSTANCE=$v142Root`" -D CMAKE_INSTALL_PREFIX=%opencv_install% -D OPENCV_EXTRA_MODULES_PATH=%opencv_contrib_dir%\modules -D OPENCV_PYTHON_SKIP_DETECTION=ON -D PYTHON3_EXECUTABLE=C:\opt\Python312\python.exe %opencv_flags%"
+                $patched = $patched.Replace($hardcodedOpencvCmake, $replacementOpencvCmake)
             }
             if ($name -eq "windows_build.bat") {
                 if (-not $patched.Contains($hardcodedMsvcVersion)) {
@@ -137,6 +162,78 @@ function Restore-OvmsWindowsBuildScripts {
     }
 }
 
+function Invoke-NativeProcess {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$FilePath,
+        [string[]]$ArgumentList = @(),
+        [Parameter(Mandatory = $true)]
+        [string]$FailureMessage
+    )
+
+    # curl/wget/bazel/cl write progress and warnings to stderr. PowerShell turns
+    # native stderr into ErrorRecords, which become terminating when
+    # $ErrorActionPreference is Stop. Keep Stop for cmdlets, but not for these.
+    $oldEap = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try {
+        if ($ArgumentList.Count -gt 0) {
+            & $FilePath @ArgumentList
+        } else {
+            & $FilePath
+        }
+        $code = $LASTEXITCODE
+    } finally {
+        $ErrorActionPreference = $oldEap
+    }
+
+    if ($null -eq $code) { $code = 0 }
+    if ($code -ne 0) {
+        throw "$FailureMessage (exit $code)"
+    }
+}
+
+function Initialize-OvmsPythonEnvironment {
+    $pythonHome = "C:\opt\Python312"
+    $pythonExe = Join-Path $pythonHome "python.exe"
+    if (-not (Test-Path -LiteralPath $pythonExe -PathType Leaf)) {
+        throw "OVMS Python is missing: $pythonExe. Run with -InstallDependencies first."
+    }
+
+    # drogon.bzl uses repository_ctx.which("python3") before "python". This
+    # machine's PATH has a Python 3.14 python3.exe; combined with PYTHONHOME
+    # for 3.12 that produces "SRE module mismatch".
+    $python3Exe = Join-Path $pythonHome "python3.exe"
+    if (-not (Test-Path -LiteralPath $python3Exe -PathType Leaf)) {
+        Copy-Item -LiteralPath $pythonExe -Destination $python3Exe -Force
+    }
+
+    $env:PYTHONHOME = $pythonHome
+    $env:PYTHONPATH = ""
+    $env:PATH = "$pythonHome;$pythonHome\Scripts;C:\opt;" + $env:PATH
+    Write-Host "Using OVMS Python:"
+    Write-Host "  $pythonExe"
+}
+
+function Assert-WindowsBuildSucceeded {
+    param([Parameter(Mandatory = $true)][string]$SourceRoot)
+
+    # windows_build.bat pipes bazel through tee, so cmd.exe's errorlevel is
+    # tee's (usually 0) even when bazel fails.
+    $buildLog = Join-Path $SourceRoot "win_build.log"
+    if (Test-Path -LiteralPath $buildLog -PathType Leaf) {
+        $failed = Select-String -LiteralPath $buildLog -Pattern '^FAILED: Build did NOT complete successfully' -Quiet
+        if ($failed) {
+            throw "windows_build.bat failed. See $buildLog"
+        }
+    }
+
+    $ovmsExe = Join-Path $SourceRoot "bazel-bin\src\ovms.exe"
+    if (-not (Test-Path -LiteralPath $ovmsExe -PathType Leaf)) {
+        throw "windows_build.bat returned without producing $ovmsExe"
+    }
+}
+
 $ModelServerPath = (Resolve-Path $ModelServerPath).Path
 
 if (-not $SkipApply) {
@@ -164,25 +261,38 @@ try {
         -MsvcVersion $vs.MsvcVersion
 
     if ($InstallDependencies) {
-        & .\windows_install_build_dependencies.bat $DependenciesRoot
-        if ($LASTEXITCODE -ne 0) { throw "windows_install_build_dependencies.bat failed." }
+        Invoke-NativeProcess `
+            -FilePath ".\windows_install_build_dependencies.bat" `
+            -ArgumentList @($DependenciesRoot) `
+            -FailureMessage "windows_install_build_dependencies.bat failed."
     }
+
+    Initialize-OvmsPythonEnvironment
 
     # JINJA mode requires the Python-enabled OVMS build. Build tests too so the
     # upstream Gemma4 regression suite can be run before packaging the runtime.
-    & .\windows_build.bat $DependenciesRoot --with_python --with_tests
-    if ($LASTEXITCODE -ne 0) { throw "windows_build.bat failed." }
+    Invoke-NativeProcess `
+        -FilePath ".\windows_build.bat" `
+        -ArgumentList @($DependenciesRoot, "--with_python", "--with_tests") `
+        -FailureMessage "windows_build.bat failed."
+    Assert-WindowsBuildSucceeded -SourceRoot $ModelServerPath
 
     if (-not $SkipParserTests) {
         $LlmModels = Join-Path $ModelServerPath "src\test\llm_testing"
-        & .\windows_prepare_llm_models.bat $LlmModels
-        if ($LASTEXITCODE -ne 0) { throw "windows_prepare_llm_models.bat failed." }
+        Invoke-NativeProcess `
+            -FilePath ".\windows_prepare_llm_models.bat" `
+            -ArgumentList @($LlmModels) `
+            -FailureMessage "windows_prepare_llm_models.bat failed."
 
-        & python .\windows_change_test_configs.py
-        if ($LASTEXITCODE -ne 0) { throw "windows_change_test_configs.py failed." }
+        Invoke-NativeProcess `
+            -FilePath "python" `
+            -ArgumentList @(".\windows_change_test_configs.py") `
+            -FailureMessage "windows_change_test_configs.py failed."
 
-        & .\bazel-bin\src\ovms_test.exe "--gtest_filter=Gemma4OutputParserTest.*"
-        if ($LASTEXITCODE -ne 0) { throw "Gemma4OutputParserTest regression suite failed." }
+        Invoke-NativeProcess `
+            -FilePath ".\bazel-bin\src\ovms_test.exe" `
+            -ArgumentList @("--gtest_filter=Gemma4OutputParserTest.*") `
+            -FailureMessage "Gemma4OutputParserTest regression suite failed."
     }
 
     $OvmsExe = Join-Path $ModelServerPath "bazel-bin\src\ovms.exe"
@@ -192,8 +302,10 @@ try {
 
     # Package the matching EXE + OpenVINO/GenAI/tokenizer DLLs + self-contained Python.
     # Deploying only ovms.exe over an older unpacked directory can create ABI/runtime skew.
-    & .\windows_create_package.bat $DependenciesRoot --with_python
-    if ($LASTEXITCODE -ne 0) { throw "windows_create_package.bat failed." }
+    Invoke-NativeProcess `
+        -FilePath ".\windows_create_package.bat" `
+        -ArgumentList @($DependenciesRoot, "--with_python") `
+        -FailureMessage "windows_create_package.bat failed."
 
     $PackageDir = Join-Path $ModelServerPath "dist\windows\ovms"
     $PackagedExe = Join-Path $PackageDir "ovms.exe"
@@ -235,8 +347,10 @@ try {
             throw "Deployment copy finished but ovms.exe is missing from $DeployTo"
         }
 
-        & $DeployedExe --version
-        if ($LASTEXITCODE -ne 0) { throw "Deployed ovms.exe failed --version sanity check." }
+        Invoke-NativeProcess `
+            -FilePath $DeployedExe `
+            -ArgumentList @("--version") `
+            -FailureMessage "Deployed ovms.exe failed --version sanity check."
 
         Write-Host "Patched OVMS deployed successfully:"
         Write-Host "  $DeployTo"

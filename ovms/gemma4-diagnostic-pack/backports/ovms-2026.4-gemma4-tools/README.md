@@ -32,7 +32,7 @@ C:\Program Files\Microsoft Visual Studio\2022\BuildTools
 C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools
 ```
 
-It checks both `ProgramFiles` environment roots, verifies that an x64 `cl.exe` exists below `VC\Tools\MSVC`, and uses the first valid installation. This bypasses the pinned OVMS RC1 batch scripts' hard-coded `Program Files (x86)` assumption.
+It checks both `ProgramFiles` environment roots plus `C:\BuildTools`, verifies that an x64 `cl.exe` exists below `VC\Tools\MSVC`, and uses the first valid installation. This bypasses the pinned OVMS RC1 batch scripts' hard-coded `Program Files (x86)` assumption.
 
 The OVMS batch files are changed only temporarily during the build. Their original bytes are restored in `finally`, including when dependency installation or compilation fails.
 
