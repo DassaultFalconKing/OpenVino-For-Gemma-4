@@ -103,10 +103,16 @@ def test_windows_build_temporarily_overrides_upstream_hardcoded_vs_path_and_rest
     assert "Restore-OvmsWindowsBuildScripts" in text
 
 
-def test_tool_smoke_requires_openai_tool_calls_not_raw_markup():
+def test_tool_smoke_covers_auto_required_and_named_hard_choice():
     text = (BACKPORT / "smoke_tool_call.py").read_text(encoding="utf-8")
     compile(text, str(BACKPORT / "smoke_tool_call.py"), "exec")
-    assert '"tool_choice": "auto"' in text
+    assert '"auto": ProbeCase' in text
+    assert '"required": ProbeCase' in text
+    assert '"named": ProbeCase' in text
+    assert 'default="all"' in text
+    assert '"type": "function"' in text
+    assert '"function": {"name": "get_weather"}' in text
+    assert "require_empty_content=True" in text
     assert "tool_calls" in text
     assert "<|tool_call>" in text
     assert "get_weather" in text
@@ -140,9 +146,12 @@ def test_install_docs_cover_manual_and_agent_paths():
     assert "smoke_tool_call.py" in install
     assert "git reset --hard" in install
     assert "C:\\llm\\ovms-gemma4-patched" in install
+    assert "tool_choice=required" in install
+    assert "named" in install.lower()
     assert "build-windows.ps1" in agents
     assert "-SkipApply" in agents
     assert "Gemma4OutputParserTest" in agents
+    assert "tool_choice=required" in agents
 
 
 def test_gemma4_generation_config_builder_is_documented_and_auto_applied():
