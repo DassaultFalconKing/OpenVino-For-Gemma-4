@@ -12,6 +12,10 @@ It applies two fixes that Intel merged after that baseline:
 The goal is narrow: when Gemma4 generates native markup such as
 `<|tool_call>call:get_weather{...}<tool_call|>`, OVMS must expose an OpenAI-compatible `message.tool_calls` object instead of leaking that markup into `message.content`.
 
+A **draft** `Gemma4GenerationConfigBuilder` (tool-guided generation / `tool_choice=required`) lives in
+[drafts/gemma4-generation-config-builder/](drafts/gemma4-generation-config-builder/).
+It is **not** applied by `apply-backport.ps1` and must **not** be enabled in the diagnostic `vlm-stable` graph until the parser accepts guided JSON-after-name. The implementation prompt is `PROMPT.md` in that folder.
+
 ## Important path distinction
 
 There are two completely separate locations:

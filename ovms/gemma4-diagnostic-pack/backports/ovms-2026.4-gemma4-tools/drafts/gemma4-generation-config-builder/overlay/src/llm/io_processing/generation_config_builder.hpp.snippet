@@ -1,0 +1,9 @@
+// Insert into src/llm/io_processing/generation_config_builder.hpp
+//
+// 1. Next to the other builder includes:
+#include "gemma4/generation_config_builder.hpp"
+//
+// 2. Inside the factory constructor, BEFORE the final else (the else is what
+//    prints "enable_tool_guided_generation is set, but will not be effective"):
+        } else if (toolParserName == "gemma4") {
+            builder_impl = std::make_unique<Gemma4GenerationConfigBuilder>(baseConfig, enableToolGuidedGeneration, decodingMethod);

@@ -118,3 +118,21 @@ def test_install_docs_cover_manual_and_agent_paths():
     assert "build-windows.ps1" in agents
     assert "-SkipApply" in agents
     assert "Gemma4OutputParserTest" in agents
+
+
+def test_draft_gemma4_generation_config_builder_is_documented_and_not_auto_applied():
+    draft = BACKPORT / "drafts" / "gemma4-generation-config-builder"
+    header = (draft / "overlay" / "src" / "llm" / "io_processing" / "gemma4" / "generation_config_builder.hpp").read_text(encoding="utf-8")
+    source = (draft / "overlay" / "src" / "llm" / "io_processing" / "gemma4" / "generation_config_builder.cpp").read_text(encoding="utf-8")
+    factory = (draft / "overlay" / "src" / "llm" / "io_processing" / "generation_config_builder.hpp.snippet").read_text(encoding="utf-8")
+    prompt = (draft / "PROMPT.md").read_text(encoding="utf-8")
+    apply = (BACKPORT / "apply-backport.ps1").read_text(encoding="utf-8")
+    assert "class Gemma4GenerationConfigBuilder" in header
+    assert '<|tool_call>call:' in source
+    assert "<tool_call|>" in source
+    assert "at_least_one" in source
+    assert "JSONSchema" in source
+    assert 'toolParserName == "gemma4"' in factory
+    assert "xgrammar" in prompt
+    assert "apply-backport.ps1" in (draft / "README.md").read_text(encoding="utf-8")
+    assert "Gemma4GenerationConfigBuilder" not in apply
