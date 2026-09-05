@@ -145,9 +145,9 @@ def test_draft_gemma4_generation_config_builder_separates_hard_and_auto_tool_cho
     # `required` and named tool_choice must constrain from token zero rather than
     # waiting for the model to emit the trigger on its own.
     assert "hardToolChoice" in source
-    assert 'request.toolChoice == "required"' in source
-    assert 'request.toolChoice != "auto"' in source
-    assert 'request.toolChoice != "none"' in source
+    assert 'toolChoice == "required"' in source
+    assert 'toolChoice != "auto"' in source
+    assert 'toolChoice != "none"' in source
     assert "TagsWithSeparator" in source
     assert 'requiredTags->separator = ""' in source
     assert "requiredTags->at_least_one = true" in source
