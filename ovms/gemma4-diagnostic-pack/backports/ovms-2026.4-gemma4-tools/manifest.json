@@ -10,11 +10,11 @@
       "id": "ovms-2026.4-rc1-gemma4-contiguous-candidate",
       "repository": "https://github.com/DassaultFalconKing/model_server.git",
       "base": "530dc63f816507d18bc14629e8cffeb55e3985e6",
-      "head": "b44c4eafc9bdcd334a7e243420a88829ad152e8c"
+      "head": "0a537f08987a3df4c0254c1614162c06ac20b968"
     }
   ],
   "selected_candidate_branch": "integration/gemma4-2026.4-rc1-contiguous",
-  "selected_candidate_head": "b44c4eafc9bdcd334a7e243420a88829ad152e8c",
+  "selected_candidate_head": "0a537f08987a3df4c0254c1614162c06ac20b968",
   "upstream_provenance": {
     "parser_fix_commits": [
       "503ff866278e9236d08bc9b6ddd18ec879660f72",
