@@ -11,6 +11,8 @@ Use the stable profile first. Only test the CB profile after the stable profile 
 
 The same pack can be used for both the Wondernuttz Gemma-4 26B model and an OpenVINO Gemma-4 31B model. The model path is injected at launch time.
 
+**To build a patched Windows OVMS 2026.4 runtime with Gemma4 tool calling** (manual and agent), use [INSTALL.md](INSTALL.md).
+
 ## Why these profiles
 
 Current OVMS distinguishes:
