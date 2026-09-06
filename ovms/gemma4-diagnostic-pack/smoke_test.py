@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
-"""
-Minimal OpenAI-compatible smoke test for the Gemma-4 OVMS diagnostic pack.
-Uses only the Python standard library.
+"""Minimal OpenAI-compatible smoke test for the Gemma-4 OVMS diagnostic pack.
+
+The diagnostic pack serves a MediaPipe/GenAI graph. OVMS exposes graph-backed
+chat completions at /v3/chat/completions. A base URL that already ends in /v1
+or /v3 is respected; a host-only base defaults to /v3 for this pack.
 """
 
 from __future__ import annotations
@@ -10,7 +12,19 @@ import argparse
 import json
 import sys
 import urllib.error
+import urllib.parse
 import urllib.request
+
+
+def chat_url(base_url: str) -> str:
+    base = base_url.rstrip("/")
+    parsed = urllib.parse.urlparse(base)
+    path = parsed.path.rstrip("/")
+    if path.endswith("/chat/completions"):
+        return base
+    if path.endswith("/v1") or path.endswith("/v3"):
+        return base + "/chat/completions"
+    return base + "/v3/chat/completions"
 
 
 def post_json(url: str, payload: dict, timeout: float) -> dict:
@@ -38,8 +52,9 @@ def extract_content(response: dict) -> str:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--base-url", default="http://127.0.0.1:8000")
+    parser = argparse.ArgumentParser(description="Smoke-test the Gemma4 OVMS graph endpoint")
+    parser.add_argument("--base-url", default="http://127.0.0.1:8000/v3",
+                        help="OVMS OpenAI base URL. Host-only values default to /v3 for this diagnostic pack.")
     parser.add_argument("--model", default="gemma4")
     parser.add_argument(
         "--prompt",
@@ -50,7 +65,7 @@ def main() -> int:
     parser.add_argument("--timeout", type=float, default=180.0)
     args = parser.parse_args()
 
-    url = args.base_url.rstrip("/") + "/v1/chat/completions"
+    url = chat_url(args.base_url)
     payload = {
         "model": args.model,
         "messages": [{"role": "user", "content": args.prompt}],
