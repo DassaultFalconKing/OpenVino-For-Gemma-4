@@ -8,6 +8,7 @@
 Gemma4-Server-windows-x64/
   Start-Server.ps1       запуск сервера
   START-HERE.md         эта инструкция
+  opencode.json         provider для OpenCode
   server/               полный OVMS-пакет: ovms.exe, DLL, python/ и остальные файлы
   models/gemma4/        все файлы модели: config.json, XML, BIN, токенизатор и шаблон
   ovms/                 настройки и вспомогательные скрипты проекта
@@ -25,6 +26,8 @@ Gemma4-Server-windows-x64/
    - **Base URL:** `http://127.0.0.1:9090/v3`
    - **Model:** `gemma4`
    - **API key:** не требуется; если поле обязательное — `local`.
+
+OpenCode подхватит provider `gemma4-local` из `opencode.json`, если запускать его из этой папки. В выборе модели используйте `gemma4-local/gemma4-26-heretic`. Для другого проекта скопируйте этот файл в его корень или добавьте блок `provider` в существующий `opencode.json`.
 
 Оставьте окно открытым. Для остановки нажмите **Ctrl+C**. Список моделей можно проверить в браузере: `http://127.0.0.1:9090/v3/models`.
 

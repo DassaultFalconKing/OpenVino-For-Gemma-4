@@ -1,0 +1,19 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "provider": {
+    "gemma4-local": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "Gemma4 OVMS (local)",
+      "options": {
+        "baseURL": "http://127.0.0.1:9090/v3",
+        "apiKey": "local"
+      },
+      "models": {
+        "gemma4-26-heretic": {
+          "name": "Gemma 4 26B Heretic (OVMS)",
+          "limit": { "context": 65536, "output": 16384 }
+        }
+      }
+    }
+  }
+}
