@@ -6,6 +6,8 @@ param(
     [string]$ModelName = 'gemma4',
     [ValidateRange(1, 65535)]
     [int]$Port = 9090,
+    [switch]$SkipCanonicalTemplate,
+    [switch]$RefreshCanonicalTemplate,
     [switch]$NoLaunch
 )
 
@@ -28,5 +30,7 @@ $launch = Join-Path $PSScriptRoot 'ovms\gemma4-diagnostic-pack\launch.ps1'
 & $launch -ModelPath $modelDirectory -OvmsExe $serverExecutable `
     -ModelName $ModelName -RestPort $Port -Profile 'vlm-stable' `
     -RuntimeDirectory (Join-Path $PSScriptRoot "generated-config\$ModelName") `
+    -SkipCanonicalTemplate:$SkipCanonicalTemplate `
+    -RefreshCanonicalTemplate:$RefreshCanonicalTemplate `
     -NoLaunch:$NoLaunch
 exit $LASTEXITCODE
