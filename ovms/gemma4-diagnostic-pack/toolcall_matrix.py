@@ -35,6 +35,20 @@ ECHO_TOOL = {
     },
 }
 
+ECHO_SECOND_TOOL = {
+    "type": "function",
+    "function": {
+        "name": "echo_second",
+        "description": "Return a second independent text value to the caller.",
+        "parameters": {
+            "type": "object",
+            "properties": {"text": {"type": "string"}},
+            "required": ["text"],
+            "additionalProperties": False,
+        },
+    },
+}
+
 QUESTION_TOOL = {
     "type": "function",
     "function": {
@@ -367,6 +381,7 @@ def selected_cases(mode: str) -> list[str]:
         "required": ["required"],
         "named": ["named"],
         "question": ["question_auto", "question_required", "question_named"],
+        "parallel": ["parallel_required"],
         "stream": ["question_stream"],
         "roundtrip": ["question_roundtrip"],
     }
@@ -379,7 +394,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Run Gemma4 tool-calling acceptance cases against OVMS")
     parser.add_argument("--base-url", default="http://127.0.0.1:9090/v3")
     parser.add_argument("--model", default="gemma4")
-    parser.add_argument("--mode", choices=["all", "none", "auto", "required", "named", "question", "stream", "roundtrip"], default="all")
+    parser.add_argument("--mode", choices=["all", "none", "auto", "required", "named", "question", "parallel", "stream", "roundtrip"], default="all")
     parser.add_argument("--output-dir", type=Path)
     parser.add_argument("--timeout", type=float, default=240.0)
     parser.add_argument("--max-tokens", type=int, default=256)
@@ -423,6 +438,19 @@ def main() -> int:
             choice = {"type": "function", "function": {"name": "echo"}}
             payload = base_payload(args.model, "Call echo with text named-test.", [ECHO_TOOL], choice, args.max_tokens)
             summary = run_unary_case(case_dir, chat_url, payload, args.timeout, expect_tool="echo")
+        elif name == "parallel_required":
+            payload = base_payload(
+                args.model,
+                "Call BOTH tools in this same assistant turn: echo with text first, and echo_second with text second. Do not explain instead.",
+                [ECHO_TOOL, ECHO_SECOND_TOOL],
+                "required",
+                args.max_tokens,
+            )
+            summary = run_unary_case(case_dir, chat_url, payload, args.timeout, expect_tool="echo", min_tool_calls=2)
+            if "echo_second" not in summary.get("tool_names", []):
+                summary["errors"].append(f"expected second tool 'echo_second', got {summary.get('tool_names', [])}")
+                summary["pass"] = False
+                write_json(case_dir / "summary.json", summary)
         elif name.startswith("question_") and name != "question_roundtrip":
             choice: Any = "auto"
             if name == "question_required" or name == "question_stream":
