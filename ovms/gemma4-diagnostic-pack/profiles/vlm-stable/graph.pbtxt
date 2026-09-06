@@ -2,7 +2,10 @@
 # Stateful OpenVINO GenAI VLMPipeline, no Continuous Batching.
 # __MODEL_PATH__, __CHAT_TEMPLATE_MODE__, and __MAX_TOKENS_LIMIT__ are replaced by launch.ps1.
 
-# OVMS_GRAPH_QUEUE_MAX_SIZE: 1
+# Disable graph-pool admission waits: concurrent streaming requests can deadlock
+# the shared HTTP worker pool while waiting for the sole reusable graph.
+# Model execution remains serialized by the legacy VLM executor.
+# OVMS_GRAPH_QUEUE_MAX_SIZE: 0
 input_stream: "HTTP_REQUEST_PAYLOAD:input"
 output_stream: "HTTP_RESPONSE_PAYLOAD:output"
 

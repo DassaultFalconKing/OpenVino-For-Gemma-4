@@ -91,4 +91,4 @@ def test_backport_readme_documents_local_patch_and_separate_deploy_path():
     assert "no Git commit" in text
     assert "-DeployTo" in text
     assert "source checkout" in text
-    assert "prebuilt ovms.exe" in text
+    assert "prebuilt ovms.exe" in text.replace("`", "")

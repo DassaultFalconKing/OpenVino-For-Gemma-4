@@ -1,5 +1,10 @@
 # Gemma-4 OVMS diagnostic deployment pack
 
+For everyday Windows use with a complete custom OVMS package, start with
+[the short startup guide](../../START-HERE.md) and the root `Start-Server.ps1`.
+Its portable layout separates `server/`, `models/gemma4/`, and `generated-config/`.
+The source archive does not include runtime binaries or model weights.
+
 This pack diagnoses corrupted or gibberish output from Gemma-4 OpenVINO models under OpenVINO Model Server (OVMS), especially on Intel Arc GPUs.
 
 It deliberately separates two execution paths:
@@ -8,6 +13,13 @@ It deliberately separates two execution paths:
 2. `vlm-cb-experimental` — **Continuous Batching**, still `DQ=0`, with `max_num_seqs=1`
 
 Use the stable profile first. Only test the CB profile after the stable profile produces coherent text.
+
+The stable default explicitly sets `OVMS_GRAPH_QUEUE_MAX_SIZE: 0`. A one-slot
+graph pool can deadlock concurrent streaming requests before generation when
+graph admission and streaming continuations share the HTTP worker pool.
+Disabling graph pooling avoids that wait; the legacy VLM executor still
+serializes model execution. The experimental CB profile is unchanged and is
+not covered by this mitigation's runtime checks.
 
 The same pack can be used for both the Wondernuttz Gemma-4 26B model and an OpenVINO Gemma-4 31B model. The model path is injected at launch time.
 

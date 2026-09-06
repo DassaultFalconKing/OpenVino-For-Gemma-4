@@ -5,6 +5,11 @@ fast and *coherent to 32K context* on Intel Arc B-series GPUs with OpenVINO GenA
 
 **New to OpenVINO? Start with [QUICKSTART.md](QUICKSTART.md).**
 
+**Windows + our custom OVMS package:** [short server startup guide / краткий запуск](START-HERE.md).
+Use `Start-Server.ps1`; the default stable profile disables graph pooling to avoid
+the reproduced concurrent-request hang. Put the complete runtime in `server/`
+and the OpenVINO model in `models/gemma4/`.
+
 **Working models, pre-patched, download and run:**
 - [gemma-4-26B-A4B heretic int4-ov](https://huggingface.co/Wondernutts/gemma-4-26B-A4B-it-qat-q4_0-unquantized-uncensored-heretic-int4-ov) (the fast MoE)
 - [gemma-4-31B heretic int4-ov](https://huggingface.co/Wondernutts/gemma-4-31B-it-qat-q4_0-unquantized-uncensored-heretic-int4-ov) (the smarter, slower dense)

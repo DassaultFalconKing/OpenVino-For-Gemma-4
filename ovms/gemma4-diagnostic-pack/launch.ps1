@@ -5,11 +5,15 @@ param(
     [ValidateSet("vlm-stable", "vlm-cb-experimental")]
     [string]$Profile = "vlm-stable",
 
+    [ValidatePattern('^[A-Za-z0-9][A-Za-z0-9._-]*$')]
     [string]$ModelName = "gemma4",
 
     [string]$OvmsExe = "ovms.exe",
 
+    [ValidateRange(1, 65535)]
     [int]$RestPort = 8000,
+
+    [string]$RuntimeDirectory,
 
     [ValidateRange(1, 2147483647)]
     [int]$MaxTokensLimit = 65536,
@@ -27,7 +31,7 @@ function To-OvmsPath([string]$PathValue) {
 }
 
 $PackRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
-$ResolvedModelPath = (Resolve-Path $ModelPath).Path
+$ResolvedModelPath = (Resolve-Path -LiteralPath $ModelPath).Path
 
 if (-not (Test-Path (Join-Path $ResolvedModelPath "config.json"))) {
     Write-Warning "Model directory has no config.json: $ResolvedModelPath"
@@ -41,18 +45,23 @@ if (-not (Test-Path $TemplateGraph)) {
     throw "Profile graph not found: $TemplateGraph"
 }
 
-$RuntimeRoot = Join-Path $PackRoot "runtime\$ModelName\$Profile"
+$RuntimeRoot = if ($RuntimeDirectory) {
+    [System.IO.Path]::GetFullPath($RuntimeDirectory)
+} else {
+    Join-Path $PackRoot "runtime\$ModelName\$Profile"
+}
 New-Item -ItemType Directory -Force -Path $RuntimeRoot | Out-Null
 
 $RuntimeGraph = Join-Path $RuntimeRoot "graph.pbtxt"
 $RuntimeConfig = Join-Path $RuntimeRoot "config.json"
 
-$modelForGraph = To-OvmsPath $ResolvedModelPath
+$modelForGraph = (To-OvmsPath $ResolvedModelPath).Replace('"', '\"')
 $graphText = Get-Content -Raw -Encoding UTF8 $TemplateGraph
 $graphText = $graphText.Replace("__MODEL_PATH__", $modelForGraph)
 $graphText = $graphText.Replace("__CHAT_TEMPLATE_MODE__", $ChatTemplateMode)
 $graphText = $graphText.Replace("__MAX_TOKENS_LIMIT__", $MaxTokensLimit.ToString())
-Set-Content -Path $RuntimeGraph -Value $graphText -Encoding UTF8
+$utf8NoBom = [System.Text.UTF8Encoding]::new($false)
+[System.IO.File]::WriteAllText($RuntimeGraph, $graphText, $utf8NoBom)
 
 $configObject = @{
     model_config_list = @()
@@ -63,7 +72,8 @@ $configObject = @{
         }
     )
 }
-$configObject | ConvertTo-Json -Depth 8 | Set-Content -Path $RuntimeConfig -Encoding UTF8
+$configJson = $configObject | ConvertTo-Json -Depth 8
+[System.IO.File]::WriteAllText($RuntimeConfig, $configJson, $utf8NoBom)
 
 Write-Host ""
 Write-Host "Gemma-4 OVMS profile prepared"
@@ -74,6 +84,7 @@ Write-Host "  template:      $ChatTemplateMode"
 Write-Host "  config:        $RuntimeConfig"
 Write-Host "  port:          $RestPort"
 Write-Host "  max tokens:    $MaxTokensLimit"
+Write-Host "  client URL:    http://127.0.0.1:$RestPort/v3"
 Write-Host ""
 
 if ($NoLaunch) {
@@ -81,17 +92,36 @@ if ($NoLaunch) {
     exit 0
 }
 
-$ovmsCommand = Get-Command $OvmsExe -ErrorAction SilentlyContinue
-if (-not $ovmsCommand) {
-    if (-not (Test-Path $OvmsExe)) {
-        throw "OVMS executable not found: $OvmsExe"
-    }
+$ResolvedOvmsExe = if (Test-Path -LiteralPath $OvmsExe -PathType Leaf) {
+    (Resolve-Path -LiteralPath $OvmsExe).Path
+} else {
+    (Get-Command $OvmsExe -CommandType Application -ErrorAction Stop).Source
+}
+$ServerDirectory = Split-Path -Parent $ResolvedOvmsExe
+$BundledPython = Join-Path $ServerDirectory 'python'
+if (-not (Test-Path -LiteralPath (Join-Path $BundledPython 'python.exe') -PathType Leaf)) {
+    throw "Bundled Python missing: $BundledPython. Extract the complete OVMS Windows package, including DLLs and python/."
 }
 
-Write-Host "Starting OVMS..."
-& $OvmsExe `
-    --config_path $RuntimeConfig `
-    --rest_port $RestPort `
-    --rest_workers 1
+$savedPythonHome = $env:PYTHONHOME
+$savedPythonPath = $env:PYTHONPATH
+$savedPath = $env:PATH
+$serverExitCode = 1
+try {
+    $env:PYTHONHOME = $BundledPython
+    $env:PYTHONPATH = $BundledPython
+    $env:PATH = "$ServerDirectory;$BundledPython;" + $savedPath
 
-exit $LASTEXITCODE
+    Write-Host "Starting OVMS. Wait for AVAILABLE before sending requests. Press Ctrl+C to stop."
+    & $ResolvedOvmsExe `
+        --config_path $RuntimeConfig `
+        --rest_port $RestPort `
+        --rest_workers 1
+    $serverExitCode = $LASTEXITCODE
+} finally {
+    $env:PYTHONHOME = $savedPythonHome
+    $env:PYTHONPATH = $savedPythonPath
+    $env:PATH = $savedPath
+}
+
+exit $serverExitCode

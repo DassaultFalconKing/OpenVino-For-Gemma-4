@@ -1,0 +1,7 @@
+/server/
+/models/
+/generated-config/
+/ovms/gemma4-diagnostic-pack/runtime/
+**/__pycache__/
+*.pyc
+.pytest_cache/
