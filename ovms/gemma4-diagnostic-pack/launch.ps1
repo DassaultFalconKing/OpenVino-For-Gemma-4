@@ -17,6 +17,8 @@ param(
     [ValidateSet("JINJA", "MINJA")]
     [string]$ChatTemplateMode = "JINJA",
 
+    [string]$SessionStoreDir,
+
     [switch]$NoLaunch
 )
 
@@ -76,6 +78,15 @@ Write-Host "  template:      $ChatTemplateMode"
 Write-Host "  config:        $RuntimeConfig"
 Write-Host "  port:          $RestPort"
 Write-Host "  max tokens:    $MaxTokensLimit"
+if ($PSBoundParameters.ContainsKey('SessionStoreDir') -and -not [string]::IsNullOrWhiteSpace($SessionStoreDir)) {
+    $ResolvedSessionStoreDir = [System.IO.Path]::GetFullPath($SessionStoreDir)
+    New-Item -ItemType Directory -Force -Path $ResolvedSessionStoreDir | Out-Null
+    $env:OVMS_SESSION_STORE_DIR = $ResolvedSessionStoreDir
+    Write-Host "  session store: enabled ($ResolvedSessionStoreDir)"
+} else {
+    Remove-Item Env:OVMS_SESSION_STORE_DIR -ErrorAction SilentlyContinue
+    Write-Host "  session store: disabled (OVMS_SESSION_STORE_DIR unset)"
+}
 Write-Host ""
 
 if ($NoLaunch) {
@@ -91,6 +102,8 @@ if (-not $ovmsCommand) {
 }
 
 Write-Host "Starting OVMS..."
+Write-Host "  OVMS_SESSION_STORE_DIR=$($env:OVMS_SESSION_STORE_DIR)"
+# Child process inherits current process environment, including OVMS_SESSION_STORE_DIR when set.
 & $OvmsExe `
     --config_path $RuntimeConfig `
     --rest_port $RestPort `

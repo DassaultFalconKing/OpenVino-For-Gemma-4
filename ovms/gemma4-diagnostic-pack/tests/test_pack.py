@@ -64,6 +64,9 @@ def test_launcher_exposes_required_profile_switches():
     assert '"vlm-stable", "vlm-cb-experimental"' in text
     assert 'ValidateSet("JINJA", "MINJA")' in text
     assert "--rest_workers 1" in text
+    assert "[string]$SessionStoreDir" in text
+    assert '$env:OVMS_SESSION_STORE_DIR = $ResolvedSessionStoreDir' in text
+    assert "X-OVMS-Session-Store" not in text
 
 
 def test_profiles_use_runtime_max_tokens_placeholder():
