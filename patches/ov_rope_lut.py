@@ -44,6 +44,9 @@ def trace_inv_freq(sin_node):
             c = n.input_value(0).get_node()
             assert c.get_type_name() == "Constant", "Broadcast input not Constant: " + c.get_type_name()
             inv = np.array(c.get_data()).astype(np.float64).flatten()
+        elif n.get_type_name() == "Constant" and list(n.get_output_shape(0))[0:1] == [1]:
+            # official OpenVINO/gemma-4-*-int4-ov exports feed inv_freq [1,F,1] straight into the MatMul
+            inv = np.array(n.get_data()).astype(np.float64).flatten()
     assert inv is not None, "no inv_freq const found behind " + sin_node.get_friendly_name()
     # Gemma-4 global attention uses PROPORTIONAL (partial) RoPE: only the first
     # rope_angles frequencies are real, the rest are ZERO BY DESIGN (nope dims,
